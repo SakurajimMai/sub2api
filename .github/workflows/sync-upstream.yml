@@ -1,0 +1,232 @@
+name: Sync Upstream
+
+# Merges Wei-Shaw/sub2api into this fork, then re-applies fork branding overlay
+# so Docker Hub / GitHub identity customizations are not lost.
+#
+# Functional commits on main (features, fixes) are preserved by git merge.
+# Branding files listed in .fork/overlay.conf are re-stamped after every sync.
+
+on:
+  schedule:
+    # Daily 03:15 UTC
+    - cron: "15 3 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only check whether upstream is ahead (no branch/PR)"
+        required: false
+        type: boolean
+        default: false
+      open_pr:
+        description: "Open a pull request (false = push branch only)"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream https://github.com/Wei-Shaw/sub2api.git
+          git fetch upstream main --tags
+          git fetch origin main
+
+      - name: Detect upstream delta
+        id: delta
+        run: |
+          BASE_BRANCH="main"
+          git checkout "$BASE_BRANCH"
+          git reset --hard "origin/${BASE_BRANCH}"
+
+          BEHIND="$(git rev-list --count HEAD..upstream/main)"
+          AHEAD="$(git rev-list --count upstream/main..HEAD)"
+          UPSTREAM_SHA="$(git rev-parse --short upstream/main)"
+          LOCAL_SHA="$(git rev-parse --short HEAD)"
+
+          {
+            echo "behind=${BEHIND}"
+            echo "ahead=${AHEAD}"
+            echo "upstream_sha=${UPSTREAM_SHA}"
+            echo "local_sha=${LOCAL_SHA}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Fork ${LOCAL_SHA} | upstream ${UPSTREAM_SHA} | behind=${BEHIND} ahead=${AHEAD}"
+
+          if [[ "$BEHIND" -eq 0 ]]; then
+            echo "already_up_to_date=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_up_to_date=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Already up to date
+        if: steps.delta.outputs.already_up_to_date == 'true'
+        run: echo "Already up to date with upstream/main — nothing to do."
+
+      - name: Dry run summary
+        if: >
+          steps.delta.outputs.already_up_to_date == 'false' &&
+          github.event_name == 'workflow_dispatch' &&
+          inputs.dry_run == true
+        run: |
+          echo "Upstream is ahead by ${{ steps.delta.outputs.behind }} commit(s)."
+          git log --oneline HEAD..upstream/main | head -50
+
+      - name: Merge upstream and apply overlay
+        id: merge
+        if: >
+          steps.delta.outputs.already_up_to_date == 'false' &&
+          !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true)
+        run: |
+          set -euo pipefail
+          UPSTREAM_SHA="${{ steps.delta.outputs.upstream_sha }}"
+          BRANCH="sync/upstream-${UPSTREAM_SHA}"
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+
+          git checkout -B "$BRANCH"
+
+          if git merge --no-edit -m "chore(sync): merge upstream/main @ ${UPSTREAM_SHA}" upstream/main; then
+            echo "merge_status=clean" >> "$GITHUB_OUTPUT"
+            echo "Merge completed without conflicts."
+          else
+            echo "merge_status=conflicts" >> "$GITHUB_OUTPUT"
+            echo "Merge conflicts detected — aborting automated merge and filing an issue."
+            git merge --abort
+            echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          chmod +x .fork/apply-overlay.sh
+          ./.fork/apply-overlay.sh
+          echo "overlay_status=ok" >> "$GITHUB_OUTPUT"
+
+          if ! git diff --quiet; then
+            git add -A
+            git commit -m "chore(fork): re-apply branding overlay after upstream sync"
+          else
+            echo "Overlay made no additional file changes (already stamped)."
+          fi
+
+          git push -u origin "$BRANCH" --force-with-lease
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open pull request
+        if: >
+          steps.delta.outputs.already_up_to_date == 'false' &&
+          steps.merge.outputs.pushed == 'true' &&
+          !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) &&
+          !(github.event_name == 'workflow_dispatch' && inputs.open_pr == false)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BRANCH="${{ steps.merge.outputs.branch }}"
+          UPSTREAM_SHA="${{ steps.delta.outputs.upstream_sha }}"
+          BEHIND="${{ steps.delta.outputs.behind }}"
+
+          TITLE="chore(sync): merge upstream/main @ ${UPSTREAM_SHA}"
+          BODY=$(cat <<EOF
+          ## Upstream sync
+
+          Automatic merge of \`Wei-Shaw/sub2api@${UPSTREAM_SHA}\` into this fork (**${BEHIND}** commit(s)).
+
+          After the merge, \`.fork/apply-overlay.sh\` re-applied fork branding from \`.fork/overlay.conf\`:
+
+          - Docker image → \`sakurajiamai/sub2api\`
+          - GitHub / install URLs → \`SakurajimMai/sub2api\`
+
+          **Your feature commits on \`main\` are preserved by git merge** (not rewritten).
+
+          ### Review checklist
+
+          - [ ] Deploy compose still uses \`sakurajiamai/sub2api\`
+          - [ ] No unexpected reverts of fork-only features
+          - [ ] CI green
+
+          Docs: \`.fork/README.md\`
+          EOF
+          )
+
+          EXISTING="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' || true)"
+          if [[ -n "${EXISTING}" && "${EXISTING}" != "null" ]]; then
+            gh pr edit "$EXISTING" --title "$TITLE" --body "$BODY"
+            echo "Updated PR #${EXISTING}"
+          else
+            gh pr create --base main --head "$BRANCH" --title "$TITLE" --body "$BODY"
+          fi
+
+      - name: Notify on merge conflicts
+        if: steps.merge.outputs.has_conflicts == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          UPSTREAM_SHA="${{ steps.delta.outputs.upstream_sha }}"
+          BEHIND="${{ steps.delta.outputs.behind }}"
+          TITLE="[CONFLICTS] chore(sync): upstream/main @ ${UPSTREAM_SHA} needs manual merge"
+          BODY=$(cat <<EOF
+          ## Upstream sync blocked by conflicts
+
+          Automated sync could not merge \`upstream/main\` (\`${UPSTREAM_SHA}\`) cleanly (**${BEHIND}** commit(s) behind).
+
+          ### Resolve locally
+
+          \`\`\`bash
+          git fetch upstream main
+          git checkout main
+          git pull origin main
+          git checkout -b sync/upstream-${UPSTREAM_SHA}-manual
+          git merge upstream/main
+          # resolve conflicts, then:
+          ./.fork/apply-overlay.sh
+          git add -A
+          git commit  # finish merge if needed
+          git push -u origin HEAD
+          gh pr create --base main --fill
+          \`\`\`
+
+          Overlay: \`.fork/overlay.conf\` · guide: \`.fork/README.md\`
+
+          ### Upstream commits
+
+          \`\`\`
+          $(git log --oneline HEAD..upstream/main | head -40)
+          \`\`\`
+          EOF
+          )
+
+          # Prefer a PR with an empty commit so the notice is visible even when Issues are disabled.
+          BRANCH="sync/upstream-${UPSTREAM_SHA}-conflicts"
+          git checkout -B "$BRANCH" origin/main
+          git commit --allow-empty -m "chore(sync): upstream @ ${UPSTREAM_SHA} has conflicts — see PR body"
+          git push -u origin "$BRANCH" --force-with-lease
+
+          EXISTING="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' || true)"
+          if [[ -n "${EXISTING}" && "${EXISTING}" != "null" ]]; then
+            gh pr edit "$EXISTING" --title "$TITLE" --body "$BODY"
+            echo "Updated PR #${EXISTING}"
+          else
+            gh pr create --base main --head "$BRANCH" --title "$TITLE" --body "$BODY"
+          fi
