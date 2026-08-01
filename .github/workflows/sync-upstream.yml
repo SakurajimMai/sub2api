@@ -29,7 +29,8 @@ permissions:
   issues: write
 
 concurrency:
-  group: sync-upstream
+  # Shared with Mirror Upstream Release so both never mutate main concurrently
+  group: fork-main-mutation
   cancel-in-progress: false
 
 jobs:

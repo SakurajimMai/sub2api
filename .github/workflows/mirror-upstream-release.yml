@@ -1,0 +1,235 @@
+name: Mirror Upstream Release
+
+# When Wei-Shaw/sub2api publishes a new v* tag that this fork does not have yet:
+#   1. Merge that upstream release commit into main
+#   2. Re-apply fork branding (.fork/apply-overlay.sh)
+#   3. Push main
+#   4. Create the same version tag on this fork
+#   5. Dispatch the Release workflow to build & push sakurajiamai/sub2api (+ GHCR)
+#
+# Note: pushes done with GITHUB_TOKEN do not re-trigger workflows, so Release is
+# started explicitly via workflow_dispatch after the tag exists.
+
+on:
+  schedule:
+    # Every 2 hours
+    - cron: "20 */2 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Upstream tag to mirror (e.g. v0.1.171). Empty = newest missing v* tag"
+        required: false
+        type: string
+      dry_run:
+        description: "Detect only; do not merge/tag/release"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: write
+
+concurrency:
+  # Share lock with Sync Upstream so both never rewrite main at once
+  group: fork-main-mutation
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream and origin tags
+        run: |
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream https://github.com/Wei-Shaw/sub2api.git
+          git fetch upstream main --tags --force
+          git fetch origin main --tags --force
+
+      - name: Select tag to mirror
+        id: select
+        env:
+          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
+        run: |
+          set -euo pipefail
+
+          # Upstream version tags: vX.Y.Z (no pre-release suffix)
+          mapfile -t UP_TAGS < <(
+            git tag -l 'v*' --sort=-v:refname \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              || true
+          )
+          # Prefer tags that exist on upstream remote
+          mapfile -t UP_REMOTE < <(
+            git ls-remote --tags --refs upstream 'v*' \
+              | awk '{print $2}' \
+              | sed 's|refs/tags/||' \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sort -V -r \
+              || true
+          )
+
+          if [[ ${#UP_REMOTE[@]} -eq 0 ]]; then
+            echo "No upstream version tags found."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          pick=""
+          if [[ -n "${REQUESTED_TAG}" ]]; then
+            pick="${REQUESTED_TAG}"
+            if [[ ! "$pick" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "error: tag must look like v0.1.171 (got: $pick)" >&2
+              exit 1
+            fi
+            if ! git ls-remote --tags --refs upstream "refs/tags/${pick}" | grep -q .; then
+              echo "error: upstream does not have tag ${pick}" >&2
+              exit 1
+            fi
+          else
+            for t in "${UP_REMOTE[@]}"; do
+              if ! git rev-parse -q --verify "refs/tags/${t}" >/dev/null 2>&1; then
+                # Also treat origin-only absence: ls-remote origin
+                if ! git ls-remote --tags --refs origin "refs/tags/${t}" | grep -q .; then
+                  pick="$t"
+                  break
+                fi
+              else
+                # Local may have the tag from fetch upstream; check origin
+                if ! git ls-remote --tags --refs origin "refs/tags/${t}" | grep -q .; then
+                  pick="$t"
+                  break
+                fi
+              fi
+            done
+          fi
+
+          if [[ -z "$pick" ]]; then
+            echo "Fork already has all upstream version tags (or none missing)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "latest_upstream=${UP_REMOTE[0]}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # If user requested a tag that already exists on origin, skip
+          if git ls-remote --tags --refs origin "refs/tags/${pick}" | grep -q .; then
+            echo "Tag ${pick} already exists on origin — nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "tag=${pick}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "tag=${pick}" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "Will mirror upstream tag: ${pick}"
+
+      - name: Dry run summary
+        if: steps.select.outputs.skip != 'true' && github.event_name == 'workflow_dispatch' && inputs.dry_run == true
+        run: |
+          TAG="${{ steps.select.outputs.tag }}"
+          echo "Would mirror: ${TAG}"
+          git fetch upstream "refs/tags/${TAG}:refs/tags/upstream-mirror/${TAG}"
+          echo "Upstream tag commit: $(git rev-parse "refs/tags/upstream-mirror/${TAG}")"
+          git log -1 --oneline "refs/tags/upstream-mirror/${TAG}"
+
+      - name: Merge upstream release, overlay, tag, dispatch Release
+        if: >
+          steps.select.outputs.skip != 'true' &&
+          !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.select.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          git checkout main
+          git reset --hard origin/main
+
+          # Fetch upstream tag into a side ref so we do not clobber a same-named local tag
+          git fetch upstream "refs/tags/${TAG}:refs/tags/upstream-mirror/${TAG}"
+          UP_COMMIT="$(git rev-parse "refs/tags/upstream-mirror/${TAG}")"
+          echo "Merging upstream ${TAG} @ ${UP_COMMIT}"
+
+          if git merge --no-edit -m "chore(sync): merge upstream ${TAG} for mirrored release" "refs/tags/upstream-mirror/${TAG}"; then
+            echo "Merge clean."
+          else
+            echo "Merge conflicts while integrating ${TAG}."
+            git merge --abort || true
+
+            BRANCH="mirror/${TAG}-conflicts"
+            git checkout -B "$BRANCH" origin/main
+            git commit --allow-empty -m "chore(mirror): upstream ${TAG} needs manual merge"
+            git push -u origin "$BRANCH" --force-with-lease
+
+            TITLE="[CONFLICTS] mirror upstream ${TAG} → release"
+            BODY=$(cat <<EOF
+          ## Upstream release mirror blocked
+
+          Could not auto-merge upstream tag \`${TAG}\` into this fork's \`main\`.
+
+          ### Fix
+
+          \`\`\`bash
+          git fetch upstream "refs/tags/${TAG}:refs/tags/upstream-mirror/${TAG}"
+          git checkout main && git pull
+          git merge upstream-mirror/${TAG}
+          # resolve conflicts
+          ./.fork/apply-overlay.sh
+          git push origin main
+          git tag -a ${TAG} -m "Mirror upstream ${TAG}"
+          git push origin ${TAG}
+          gh workflow run release.yml -f tag=${TAG}
+          \`\`\`
+          EOF
+          )
+            EXISTING="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' || true)"
+            if [[ -n "${EXISTING}" && "${EXISTING}" != "null" ]]; then
+              gh pr edit "$EXISTING" --title "$TITLE" --body "$BODY"
+            else
+              gh pr create --base main --head "$BRANCH" --title "$TITLE" --body "$BODY"
+            fi
+            exit 1
+          fi
+
+          chmod +x .fork/apply-overlay.sh
+          ./.fork/apply-overlay.sh
+
+          if ! git diff --quiet; then
+            git add -A
+            git commit -m "chore(fork): re-apply branding overlay for ${TAG}"
+          fi
+
+          # Push updated main (fork code at upstream release + branding)
+          git push origin main
+
+          # Annotated tag on the merge result (not the raw upstream commit)
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            git tag -d "${TAG}"
+          fi
+          git tag -a "${TAG}" -m "Mirror upstream release ${TAG}
+
+          Upstream: Wei-Shaw/sub2api@${UP_COMMIT}
+          Fork branding: sakurajiamai/sub2api (via .fork/overlay.conf)
+          "
+          git push origin "refs/tags/${TAG}"
+
+          # GITHUB_TOKEN tag push does not trigger workflows — dispatch Release explicitly
+          gh workflow run release.yml \
+            --repo "${{ github.repository }}" \
+            -f "tag=${TAG}" \
+            -f "simple_release=false"
+
+          echo "Mirrored ${TAG} and dispatched Release workflow."
+          echo "Docker images will appear as sakurajiamai/sub2api:${TAG#v} and :latest when Release finishes."

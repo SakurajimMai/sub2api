@@ -18,7 +18,7 @@ Branding currently re-stamps:
 
 Secrets such as `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` live in GitHub Actions secrets and are **not** part of this overlay.
 
-## Automatic sync
+## Automatic code sync (main)
 
 Workflow: [`.github/workflows/sync-upstream.yml`](../.github/workflows/sync-upstream.yml)
 
@@ -27,9 +27,35 @@ Workflow: [`.github/workflows/sync-upstream.yml`](../.github/workflows/sync-upst
 | Daily schedule (03:15 UTC) | If fork is behind `upstream/main`, merge + overlay + open PR |
 | Manual **Run workflow** | Same; optional dry-run |
 
-The workflow **does not push straight to `main`**. It opens a PR (`sync/upstream-<sha>`) so you can review.
+Opens a PR for review (does not force-push features without you looking).
 
-If git reports conflicts, the workflow opens a **placeholder PR** titled `[CONFLICTS] ...` (works even when GitHub Issues are disabled). Resolve locally, run the overlay again, push a real merge branch, then merge.
+## Automatic release mirror (tags + images)
+
+Workflow: [`.github/workflows/mirror-upstream-release.yml`](../.github/workflows/mirror-upstream-release.yml)
+
+| Trigger | Behavior |
+|---------|----------|
+| Every 2 hours | If upstream has a new `vX.Y.Z` tag missing on this fork → merge that release into `main`, overlay branding, create the **same tag**, dispatch **Release** |
+| Manual **Run workflow** | Optional specific tag; optional dry-run |
+
+Pipeline:
+
+```
+upstream tag v0.1.171
+    → merge into main + apply-overlay
+    → git tag v0.1.171 + push
+    → workflow_dispatch Release
+    → sakurajiamai/sub2api:0.1.171 + :latest
+    → ghcr.io/sakurajimmai/sub2api:0.1.171 + :latest
+```
+
+Notes:
+
+- Only stable tags matching `vMAJOR.MINOR.PATCH` (no `-rc` / `-beta`).
+- One missing tag per run (newest first).
+- `GITHUB_TOKEN` tag pushes do not auto-trigger other workflows, so Release is started via `workflow_dispatch`.
+- Merge conflicts open a `[CONFLICTS]` PR instead of tagging.
+- Shares a concurrency lock with Sync Upstream (`fork-main-mutation`).
 
 ## Manual commands
 
@@ -69,7 +95,13 @@ With Actions secrets:
 - `DOCKERHUB_USERNAME` = `sakurajiamai`
 - `DOCKERHUB_TOKEN` = Docker Hub access token
 
-tagging `v*` runs the existing [release](../.github/workflows/release.yml) workflow and publishes:
+Sources of releases:
+
+1. **Auto** — Mirror Upstream Release when Wei-Shaw publishes `v*`
+2. **Manual tag** — `git tag -a vX.Y.Z && git push origin vX.Y.Z`
+3. **Manual Actions** — Release → Run workflow with a tag
+
+Published images:
 
 - `sakurajiamai/sub2api:latest` (and version tags)
 - `ghcr.io/sakurajimmai/sub2api:latest` (owner lowercased)
