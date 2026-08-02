@@ -51,12 +51,16 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Fetch upstream and origin tags
+      - name: Fetch upstream and origin
         run: |
           git remote remove upstream 2>/dev/null || true
           git remote add upstream https://github.com/Wei-Shaw/sub2api.git
-          git fetch upstream main --tags --force
-          git fetch origin main --tags --force
+          # Avoid bulk --tags: annotated tags that already exist locally with a
+          # different object fail with "would clobber existing tag" and exit 1.
+          # Tag selection uses ls-remote; only the chosen tag is fetched later
+          # into refs/tags/upstream-mirror/*.
+          git fetch upstream main --no-tags
+          git fetch origin main --no-tags
 
       - name: Select tag to mirror
         id: select
@@ -65,13 +69,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Upstream version tags: vX.Y.Z (no pre-release suffix)
-          mapfile -t UP_TAGS < <(
-            git tag -l 'v*' --sort=-v:refname \
-              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-              || true
-          )
-          # Prefer tags that exist on upstream remote
+          # List stable version tags via remote only (no local tag fetch).
           mapfile -t UP_REMOTE < <(
             git ls-remote --tags --refs upstream 'v*' \
               | awk '{print $2}' \
@@ -100,18 +98,9 @@ jobs:
             fi
           else
             for t in "${UP_REMOTE[@]}"; do
-              if ! git rev-parse -q --verify "refs/tags/${t}" >/dev/null 2>&1; then
-                # Also treat origin-only absence: ls-remote origin
-                if ! git ls-remote --tags --refs origin "refs/tags/${t}" | grep -q .; then
-                  pick="$t"
-                  break
-                fi
-              else
-                # Local may have the tag from fetch upstream; check origin
-                if ! git ls-remote --tags --refs origin "refs/tags/${t}" | grep -q .; then
-                  pick="$t"
-                  break
-                fi
+              if ! git ls-remote --tags --refs origin "refs/tags/${t}" | grep -q .; then
+                pick="$t"
+                break
               fi
             done
           fi

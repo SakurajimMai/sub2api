@@ -52,8 +52,11 @@ jobs:
         run: |
           git remote remove upstream 2>/dev/null || true
           git remote add upstream https://github.com/Wei-Shaw/sub2api.git
-          git fetch upstream main --tags
-          git fetch origin main
+          # Only need main for delta/merge. Do not fetch tags: local tags from a
+          # prior checkout/mirror can differ from upstream and "would clobber"
+          # causes fetch to exit 1 (seen with v0.1.163–v0.1.169).
+          git fetch upstream main --no-tags
+          git fetch origin main --no-tags
 
       - name: Detect upstream delta
         id: delta
