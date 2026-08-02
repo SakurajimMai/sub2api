@@ -24,10 +24,10 @@ Workflow: [`.github/workflows/sync-upstream.yml`](../.github/workflows/sync-upst
 
 | Trigger | Behavior |
 |---------|----------|
-| Daily schedule (03:15 UTC) | If fork is behind `upstream/main`, merge + overlay + open PR |
+| Daily schedule (03:15 UTC) | If fork is behind `upstream/main`, **merge + overlay + push `main`** |
 | Manual **Run workflow** | Same; optional dry-run |
 
-Opens a PR for review (does not force-push features without you looking).
+Clean merges update `main` directly (no PR — avoids GITHUB_TOKEN createPullRequest limits). Branding is re-applied after every merge. On conflicts, branch `sync/upstream-<sha>-conflicts` is pushed and the job fails for manual fix.
 
 ## Automatic release mirror (tags + images)
 
