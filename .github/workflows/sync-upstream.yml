@@ -1,10 +1,9 @@
 name: Sync Upstream
 
-# Merges Wei-Shaw/sub2api into this fork, then re-applies fork branding overlay
-# so Docker Hub / GitHub identity customizations are not lost.
-#
-# Functional commits on main (features, fixes) are preserved by git merge.
-# Branding files listed in .fork/overlay.conf are re-stamped after every sync.
+# Merges Wei-Shaw/sub2api into this fork's main, then re-applies fork branding.
+# Clean merges push straight to main (no PR required — GITHUB_TOKEN often cannot
+# create PRs when workflow permissions are restricted).
+# Conflicts open a branch for manual resolution.
 
 on:
   schedule:
@@ -13,20 +12,13 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Only check whether upstream is ahead (no branch/PR)"
+        description: "Only check whether upstream is ahead (no merge/push)"
         required: false
         type: boolean
         default: false
-      open_pr:
-        description: "Open a pull request (false = push branch only)"
-        required: false
-        type: boolean
-        default: true
 
 permissions:
   contents: write
-  pull-requests: write
-  issues: write
 
 concurrency:
   # Shared with Mirror Upstream Release so both never mutate main concurrently
@@ -98,7 +90,7 @@ jobs:
           echo "Upstream is ahead by ${{ steps.delta.outputs.behind }} commit(s)."
           git log --oneline HEAD..upstream/main | head -50
 
-      - name: Merge upstream and apply overlay
+      - name: Merge upstream into main and apply overlay
         id: merge
         if: >
           steps.delta.outputs.already_up_to_date == 'false' &&
@@ -106,19 +98,32 @@ jobs:
         run: |
           set -euo pipefail
           UPSTREAM_SHA="${{ steps.delta.outputs.upstream_sha }}"
-          BRANCH="sync/upstream-${UPSTREAM_SHA}"
-          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+          BEHIND="${{ steps.delta.outputs.behind }}"
 
-          git checkout -B "$BRANCH"
+          git checkout main
+          git reset --hard origin/main
 
           if git merge --no-edit -m "chore(sync): merge upstream/main @ ${UPSTREAM_SHA}" upstream/main; then
             echo "merge_status=clean" >> "$GITHUB_OUTPUT"
-            echo "Merge completed without conflicts."
+            echo "Merge completed without conflicts (${BEHIND} commit(s))."
           else
             echo "merge_status=conflicts" >> "$GITHUB_OUTPUT"
-            echo "Merge conflicts detected — aborting automated merge and filing an issue."
-            git merge --abort
             echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
+            echo "Merge conflicts — aborting and pushing a conflict marker branch."
+            git merge --abort || true
+
+            BRANCH="sync/upstream-${UPSTREAM_SHA}-conflicts"
+            git checkout -B "$BRANCH" origin/main
+            git commit --allow-empty -m "chore(sync): upstream @ ${UPSTREAM_SHA} has conflicts — resolve manually
+
+          git fetch upstream main
+          git checkout main && git pull
+          git merge upstream/main
+          ./.fork/apply-overlay.sh
+          git push origin main
+          "
+            git push -u origin "$BRANCH" --force-with-lease
+            echo "conflict_branch=${BRANCH}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -133,104 +138,13 @@ jobs:
             echo "Overlay made no additional file changes (already stamped)."
           fi
 
-          git push -u origin "$BRANCH" --force-with-lease
-          echo "pushed=true" >> "$GITHUB_OUTPUT"
+          git push origin main
+          echo "pushed_main=true" >> "$GITHUB_OUTPUT"
+          echo "Synced main to upstream/main @ ${UPSTREAM_SHA}"
 
-      - name: Open pull request
-        if: >
-          steps.delta.outputs.already_up_to_date == 'false' &&
-          steps.merge.outputs.pushed == 'true' &&
-          !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) &&
-          !(github.event_name == 'workflow_dispatch' && inputs.open_pr == false)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          BRANCH="${{ steps.merge.outputs.branch }}"
-          UPSTREAM_SHA="${{ steps.delta.outputs.upstream_sha }}"
-          BEHIND="${{ steps.delta.outputs.behind }}"
-
-          TITLE="chore(sync): merge upstream/main @ ${UPSTREAM_SHA}"
-          BODY=$(cat <<EOF
-          ## Upstream sync
-
-          Automatic merge of \`Wei-Shaw/sub2api@${UPSTREAM_SHA}\` into this fork (**${BEHIND}** commit(s)).
-
-          After the merge, \`.fork/apply-overlay.sh\` re-applied fork branding from \`.fork/overlay.conf\`:
-
-          - Docker image → \`sakurajiamai/sub2api\`
-          - GitHub / install URLs → \`SakurajimMai/sub2api\`
-
-          **Your feature commits on \`main\` are preserved by git merge** (not rewritten).
-
-          ### Review checklist
-
-          - [ ] Deploy compose still uses \`sakurajiamai/sub2api\`
-          - [ ] No unexpected reverts of fork-only features
-          - [ ] CI green
-
-          Docs: \`.fork/README.md\`
-          EOF
-          )
-
-          EXISTING="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' || true)"
-          if [[ -n "${EXISTING}" && "${EXISTING}" != "null" ]]; then
-            gh pr edit "$EXISTING" --title "$TITLE" --body "$BODY"
-            echo "Updated PR #${EXISTING}"
-          else
-            gh pr create --base main --head "$BRANCH" --title "$TITLE" --body "$BODY"
-          fi
-
-      - name: Notify on merge conflicts
+      - name: Fail job when conflicts need manual work
         if: steps.merge.outputs.has_conflicts == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-          UPSTREAM_SHA="${{ steps.delta.outputs.upstream_sha }}"
-          BEHIND="${{ steps.delta.outputs.behind }}"
-          TITLE="[CONFLICTS] chore(sync): upstream/main @ ${UPSTREAM_SHA} needs manual merge"
-          BODY=$(cat <<EOF
-          ## Upstream sync blocked by conflicts
-
-          Automated sync could not merge \`upstream/main\` (\`${UPSTREAM_SHA}\`) cleanly (**${BEHIND}** commit(s) behind).
-
-          ### Resolve locally
-
-          \`\`\`bash
-          git fetch upstream main
-          git checkout main
-          git pull origin main
-          git checkout -b sync/upstream-${UPSTREAM_SHA}-manual
-          git merge upstream/main
-          # resolve conflicts, then:
-          ./.fork/apply-overlay.sh
-          git add -A
-          git commit  # finish merge if needed
-          git push -u origin HEAD
-          gh pr create --base main --fill
-          \`\`\`
-
-          Overlay: \`.fork/overlay.conf\` · guide: \`.fork/README.md\`
-
-          ### Upstream commits
-
-          \`\`\`
-          $(git log --oneline HEAD..upstream/main | head -40)
-          \`\`\`
-          EOF
-          )
-
-          # Prefer a PR with an empty commit so the notice is visible even when Issues are disabled.
-          BRANCH="sync/upstream-${UPSTREAM_SHA}-conflicts"
-          git checkout -B "$BRANCH" origin/main
-          git commit --allow-empty -m "chore(sync): upstream @ ${UPSTREAM_SHA} has conflicts — see PR body"
-          git push -u origin "$BRANCH" --force-with-lease
-
-          EXISTING="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' || true)"
-          if [[ -n "${EXISTING}" && "${EXISTING}" != "null" ]]; then
-            gh pr edit "$EXISTING" --title "$TITLE" --body "$BODY"
-            echo "Updated PR #${EXISTING}"
-          else
-            gh pr create --base main --head "$BRANCH" --title "$TITLE" --body "$BODY"
-          fi
+          echo "::error::Upstream merge has conflicts. Branch: ${{ steps.merge.outputs.conflict_branch }}"
+          echo "Resolve manually (see empty commit message on that branch), then re-run if needed."
+          exit 1
