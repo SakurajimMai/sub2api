@@ -107,24 +107,39 @@ jobs:
             echo "merge_status=clean" >> "$GITHUB_OUTPUT"
             echo "Merge completed without conflicts (${BEHIND} commit(s))."
           else
-            echo "merge_status=conflicts" >> "$GITHUB_OUTPUT"
-            echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
-            echo "Merge conflicts — aborting and pushing a conflict marker branch."
-            git merge --abort || true
+            # Auto-resolve the common VERSION-only conflict: always prefer upstream's
+            # VERSION when that is the sole conflict (fork mirror rewinds caused this).
+            mapfile -t CONFLICTS < <(git diff --name-only --diff-filter=U || true)
+            if [[ ${#CONFLICTS[@]} -eq 1 && "${CONFLICTS[0]}" == "backend/cmd/server/VERSION" ]]; then
+              echo "Only VERSION conflicts — taking upstream VERSION."
+              git checkout --theirs backend/cmd/server/VERSION
+              git add backend/cmd/server/VERSION
+              git commit --no-edit -m "chore(sync): merge upstream/main @ ${UPSTREAM_SHA} (VERSION from upstream)"
+              echo "merge_status=clean" >> "$GITHUB_OUTPUT"
+              echo "auto_resolved_version=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "merge_status=conflicts" >> "$GITHUB_OUTPUT"
+              echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
+              echo "Merge conflicts in: ${CONFLICTS[*]:-unknown}"
+              git merge --abort || true
 
-            BRANCH="sync/upstream-${UPSTREAM_SHA}-conflicts"
-            git checkout -B "$BRANCH" origin/main
-            git commit --allow-empty -m "chore(sync): upstream @ ${UPSTREAM_SHA} has conflicts — resolve manually
+              BRANCH="sync/upstream-${UPSTREAM_SHA}-conflicts"
+              git checkout -B "$BRANCH" origin/main
+              git commit --allow-empty -m "chore(sync): upstream @ ${UPSTREAM_SHA} has conflicts — resolve manually
 
-          git fetch upstream main
+          Conflicts: ${CONFLICTS[*]:-unknown}
+
+          git fetch upstream main --no-tags
           git checkout main && git pull
           git merge upstream/main
+          # resolve, then:
           ./.fork/apply-overlay.sh
           git push origin main
           "
-            git push -u origin "$BRANCH" --force-with-lease
-            echo "conflict_branch=${BRANCH}" >> "$GITHUB_OUTPUT"
-            exit 0
+              git push -u origin "$BRANCH" --force-with-lease
+              echo "conflict_branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
 
           chmod +x .fork/apply-overlay.sh

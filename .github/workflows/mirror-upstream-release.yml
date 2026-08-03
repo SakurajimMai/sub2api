@@ -85,6 +85,26 @@ jobs:
             exit 0
           fi
 
+          # Highest stable tag already on this fork (do NOT backfill history).
+          # Previous logic picked the newest *missing* tag, which walked backward
+          # through old v0.1.15x tags, rewound VERSION, and caused main conflicts.
+          mapfile -t ORIGIN_TAGS < <(
+            git ls-remote --tags --refs origin 'v*' \
+              | awk '{print $2}' \
+              | sed 's|refs/tags/||' \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sort -V -r \
+              || true
+          )
+          FORK_LATEST="${ORIGIN_TAGS[0]:-}"
+          echo "Fork latest tag: ${FORK_LATEST:-<none>}"
+          echo "Upstream latest tag: ${UP_REMOTE[0]}"
+
+          version_gt() {
+            # true if $1 > $2 (semver-ish vX.Y.Z)
+            [[ "$(printf '%s\n' "$1" "$2" | sort -V | tail -n1)" == "$1" && "$1" != "$2" ]]
+          }
+
           pick=""
           if [[ -n "${REQUESTED_TAG}" ]]; then
             pick="${REQUESTED_TAG}"
@@ -98,6 +118,10 @@ jobs:
             fi
           else
             for t in "${UP_REMOTE[@]}"; do
+              # Only consider tags strictly newer than what the fork already shipped
+              if [[ -n "$FORK_LATEST" ]] && ! version_gt "$t" "$FORK_LATEST"; then
+                continue
+              fi
               if ! git ls-remote --tags --refs origin "refs/tags/${t}" | grep -q .; then
                 pick="$t"
                 break
@@ -106,7 +130,7 @@ jobs:
           fi
 
           if [[ -z "$pick" ]]; then
-            echo "Fork already has all upstream version tags (or none missing)."
+            echo "No newer upstream release to mirror (fork at ${FORK_LATEST:-none}, upstream at ${UP_REMOTE[0]})."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "latest_upstream=${UP_REMOTE[0]}" >> "$GITHUB_OUTPUT"
             exit 0
@@ -120,9 +144,19 @@ jobs:
             exit 0
           fi
 
+          # Guard: never merge an older release onto main automatically
+          if [[ -n "$FORK_LATEST" ]] && ! version_gt "$pick" "$FORK_LATEST"; then
+            if [[ -n "${REQUESTED_TAG}" ]]; then
+              echo "warning: requested ${pick} is not newer than fork latest ${FORK_LATEST}; proceeding because explicitly requested."
+            else
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
           echo "tag=${pick}" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
-          echo "Will mirror upstream tag: ${pick}"
+          echo "Will mirror upstream tag: ${pick} (fork latest was ${FORK_LATEST:-none})"
 
       - name: Dry run summary
         if: steps.select.outputs.skip != 'true' && github.event_name == 'workflow_dispatch' && inputs.dry_run == true
