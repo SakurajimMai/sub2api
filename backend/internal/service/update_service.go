@@ -30,7 +30,9 @@ var (
 const (
 	updateCacheKey = "update_check_cache"
 	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "Wei-Shaw/sub2api"
+	// Fork release source — must stay on this fork so in-app updates never pull
+	// upstream Wei-Shaw binaries that would overwrite fork branding/features.
+	githubRepo = "SakurajimMai/sub2api"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"

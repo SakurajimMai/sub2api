@@ -13,8 +13,11 @@ Branding currently re-stamps:
 
 - Docker Hub image: `sakurajiamai/sub2api` (was `weishaw/sub2api`)
 - GitHub owner/repo links & install sources: `SakurajimMai/sub2api`
+- In-app update check (`backend/internal/service/update_service.go` `githubRepo`) → fork releases only
 - Paths listed in `OVERLAY_PATHS` inside `overlay.conf`
 - Star History badges are left on **upstream** metrics (by design)
+
+> **Important:** UI “立即更新” downloads GitHub Release assets from **this fork**. If `githubRepo` still pointed at Wei-Shaw, an update would install upstream binaries and wipe fork customizations.
 
 Secrets such as `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` live in GitHub Actions secrets and are **not** part of this overlay.
 

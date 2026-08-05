@@ -107,6 +107,13 @@ transform() {
         -e "s|GITHUB_REPO=\"${UPSTREAM_GITHUB_OWNER}/${UPSTREAM_GITHUB_REPO}\"|GITHUB_REPO=\"${FORK_GITHUB_OWNER}/${FORK_GITHUB_REPO}\"|g"
       )
       ;;
+    backend/internal/service/update_service.go)
+      # Only rewrite the release-check constant — never Go import paths (module stays Wei-Shaw/sub2api).
+      sed \
+        -e "s|githubRepo[[:space:]]*=[[:space:]]*\"${UPSTREAM_GITHUB_OWNER}/${UPSTREAM_GITHUB_REPO}\"|githubRepo = \"${FORK_GITHUB_OWNER}/${FORK_GITHUB_REPO}\"|g" \
+        "$file"
+      return 0
+      ;;
   esac
 
   "${cmd[@]}" "$file"
