@@ -120,7 +120,10 @@ jobs:
 
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.5'
+          EXPECTED_GO_VERSION="$(awk '/^go / { print "go" $2; exit }' backend/go.mod)"
+          ACTUAL_GO_VERSION="$(go env GOVERSION)"
+          echo "Expected ${EXPECTED_GO_VERSION}; got ${ACTUAL_GO_VERSION}"
+          test "$ACTUAL_GO_VERSION" = "$EXPECTED_GO_VERSION"
 
       # Docker setup for GoReleaser
       - name: Set up QEMU

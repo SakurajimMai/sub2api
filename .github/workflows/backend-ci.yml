@@ -33,7 +33,10 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.5'
+          EXPECTED_GO_VERSION="$(awk '/^go / { print "go" $2; exit }' backend/go.mod)"
+          ACTUAL_GO_VERSION="$(go env GOVERSION)"
+          echo "Expected ${EXPECTED_GO_VERSION}; got ${ACTUAL_GO_VERSION}"
+          test "$ACTUAL_GO_VERSION" = "$EXPECTED_GO_VERSION"
       - name: Unit tests
         working-directory: backend
         run: make test-unit
@@ -73,7 +76,10 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.5'
+          EXPECTED_GO_VERSION="$(awk '/^go / { print "go" $2; exit }' backend/go.mod)"
+          ACTUAL_GO_VERSION="$(go env GOVERSION)"
+          echo "Expected ${EXPECTED_GO_VERSION}; got ${ACTUAL_GO_VERSION}"
+          test "$ACTUAL_GO_VERSION" = "$EXPECTED_GO_VERSION"
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:

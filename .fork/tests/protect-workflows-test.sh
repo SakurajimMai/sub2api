@@ -24,6 +24,24 @@ require_workflow_guard() {
 require_workflow_guard ".github/workflows/mirror-upstream-release.yml"
 require_workflow_guard ".github/workflows/sync-upstream.yml"
 
+require_dynamic_go_check() {
+  local workflow="$1"
+  local expected_count="$2"
+  local actual_count
+
+  actual_count="$(grep -Fc 'EXPECTED_GO_VERSION="$(awk' "$ROOT/$workflow" || true)"
+  [[ "$actual_count" -eq "$expected_count" ]] \
+    || fail "$workflow 的 Go 版本校验未全部从 backend/go.mod 动态读取"
+
+  if grep -Eq "grep -q ['\"]go[0-9]+\." "$ROOT/$workflow"; then
+    fail "$workflow 仍包含硬编码 Go 版本"
+  fi
+}
+
+require_dynamic_go_check ".github/workflows/backend-ci.yml" 2
+require_dynamic_go_check ".github/workflows/release.yml" 1
+require_dynamic_go_check ".github/workflows/security-scan.yml" 1
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
