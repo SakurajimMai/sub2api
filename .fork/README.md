@@ -8,6 +8,9 @@ This fork tracks upstream [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api
 |------|-------------------------------|
 | **Product features** (e.g. custom menu open modes) | Normal git history on `main`. Merge brings upstream commits; your commits stay. |
 | **Branding / deploy identity** | Re-applied after every sync by [apply-overlay.sh](./apply-overlay.sh) from [overlay.conf](./overlay.conf). |
+| **GitHub Actions 工作流** | 合并后由 [restore-managed-workflows.sh](./restore-managed-workflows.sh) 恢复为 fork 基线，再修订原 merge commit。 |
+
+`.github/workflows/**` 属于 fork 自主管理边界。自动同步不会直接引入上游工作流变更；此类变更必须人工审查后单独合并。这样既避免内置 `GITHUB_TOKEN` 因缺少 `Workflows` 权限而拒绝推送，也避免未经审查的上游 Actions 获得 fork Secrets 的执行机会。
 
 Branding currently re-stamps:
 
@@ -30,7 +33,7 @@ Workflow: [`.github/workflows/sync-upstream.yml`](../.github/workflows/sync-upst
 | Daily schedule (03:15 UTC) | If fork is behind `upstream/main`, **merge + overlay + push `main`** |
 | Manual **Run workflow** | Same; optional dry-run |
 
-Clean merges update `main` directly (no PR — avoids GITHUB_TOKEN createPullRequest limits). Branding is re-applied after every merge. On conflicts, branch `sync/upstream-<sha>-conflicts` is pushed and the job fails for manual fix.
+Clean merges update `main` directly (no PR — avoids GITHUB_TOKEN createPullRequest limits). Fork-managed workflows are restored and branding is re-applied before the merge commit is amended and pushed. On conflicts, branch `sync/upstream-<sha>-conflicts` is pushed and the job fails for manual fix.
 
 ## Automatic release mirror (tags + images)
 

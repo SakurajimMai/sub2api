@@ -118,6 +118,8 @@ backend/.installed
 tests
 !deploy/tests/
 !deploy/tests/**
+!.fork/tests/
+!.fork/tests/**
 CLAUDE.md
 .claude
 scripts

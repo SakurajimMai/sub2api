@@ -185,7 +185,7 @@ jobs:
           UP_COMMIT="$(git rev-parse "refs/tags/upstream-mirror/${TAG}")"
           echo "Merging upstream ${TAG} @ ${UP_COMMIT}"
 
-          if git merge --no-edit -m "chore(sync): merge upstream ${TAG} for mirrored release" "refs/tags/upstream-mirror/${TAG}"; then
+          if git merge --no-ff --no-edit -m "chore(sync): merge upstream ${TAG} for mirrored release" "refs/tags/upstream-mirror/${TAG}"; then
             echo "Merge clean."
           else
             echo "Merge conflicts while integrating ${TAG}."
@@ -226,12 +226,13 @@ jobs:
             exit 1
           fi
 
-          chmod +x .fork/apply-overlay.sh
+          chmod +x .fork/restore-managed-workflows.sh .fork/apply-overlay.sh
+          ./.fork/restore-managed-workflows.sh origin/main
           ./.fork/apply-overlay.sh
 
-          if ! git diff --quiet; then
+          if ! git diff --quiet || ! git diff --cached --quiet; then
             git add -A
-            git commit -m "chore(fork): re-apply branding overlay for ${TAG}"
+            git commit --amend --no-edit
           fi
 
           # Push updated main (fork code at upstream release + branding)
