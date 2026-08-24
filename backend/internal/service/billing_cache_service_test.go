@@ -16,6 +16,10 @@ type billingCacheWorkerStub struct {
 	subscriptionUpdates int64
 }
 
+func (s *billingCacheWorkerStub) ResetUserPlatformWeeklyQuotaCache(context.Context, int64, string, time.Time, time.Duration, bool) (bool, error) {
+	return false, nil
+}
+
 func (b *billingCacheWorkerStub) GetUserBalance(ctx context.Context, userID int64) (float64, error) {
 	return 0, errors.New("not implemented")
 }

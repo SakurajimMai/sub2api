@@ -132,3 +132,72 @@ func TestUserPlatformQuotaCache_Delete(t *testing.T) {
 		t.Error("expected miss after delete")
 	}
 }
+
+func TestUserPlatformQuotaCache_ResetWeekly(t *testing.T) {
+	c, mr := newMiniRedisCache(t)
+	ctx := context.Background()
+	oldStart := time.Date(2026, 8, 17, 3, 0, 0, 0, time.UTC)
+	newStart := time.Date(2026, 8, 24, 1, 30, 0, 0, time.UTC)
+	if err := c.SetUserPlatformQuotaCache(ctx, 7, "openai", &service.UserPlatformQuotaCacheEntry{
+		WeeklyUsageUSD:    12.5,
+		Version:           4,
+		SchemaVersion:     service.UserPlatformQuotaCacheSchemaV1,
+		WeeklyWindowStart: &oldStart,
+	}, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := c.ResetUserPlatformWeeklyQuotaCache(ctx, 7, "openai", newStart, 10*time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updated {
+		t.Fatal("expected cache hit to be updated")
+	}
+	got, ok, err := c.GetUserPlatformQuotaCache(ctx, 7, "openai")
+	if err != nil || !ok {
+		t.Fatalf("get: ok=%v err=%v", ok, err)
+	}
+	if got.WeeklyUsageUSD != 0 || got.WeeklyWindowStart == nil || !got.WeeklyWindowStart.Equal(newStart) {
+		t.Fatalf("unexpected reset result: %+v", got)
+	}
+	if got.Version != 5 {
+		t.Fatalf("version=%d, want 5", got.Version)
+	}
+	_ = mr
+	dirty, err := c.rdb.SIsMember(ctx, userPlatformQuotaDirtySetKey(), userPlatformQuotaDirtyMember(7, "openai")).Result()
+	if err != nil || !dirty {
+		t.Fatal("reset cache key should be marked dirty")
+	}
+
+	updated, err = c.ResetUserPlatformWeeklyQuotaCache(ctx, 99, "openai", newStart, time.Minute, true)
+	if err != nil || updated {
+		t.Fatalf("cache miss: updated=%v err=%v", updated, err)
+	}
+}
+
+func TestUserPlatformQuotaCache_ResetWeeklyPreservesUsageFromCurrentWindow(t *testing.T) {
+	c, _ := newMiniRedisCache(t)
+	ctx := context.Background()
+	newStart := time.Date(2026, 8, 24, 1, 30, 0, 0, time.UTC)
+	if err := c.SetUserPlatformQuotaCache(ctx, 8, "openai", &service.UserPlatformQuotaCacheEntry{
+		WeeklyUsageUSD:    0.75,
+		Version:           9,
+		SchemaVersion:     service.UserPlatformQuotaCacheSchemaV1,
+		WeeklyWindowStart: &newStart,
+	}, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := c.ResetUserPlatformWeeklyQuotaCache(ctx, 8, "openai", newStart, time.Minute, true)
+	if err != nil || !updated {
+		t.Fatalf("updated=%v err=%v", updated, err)
+	}
+	got, ok, err := c.GetUserPlatformQuotaCache(ctx, 8, "openai")
+	if err != nil || !ok {
+		t.Fatalf("get: ok=%v err=%v", ok, err)
+	}
+	if got.WeeklyUsageUSD != 0.75 || got.Version != 9 {
+		t.Fatalf("current-window usage was overwritten: %+v", got)
+	}
+}

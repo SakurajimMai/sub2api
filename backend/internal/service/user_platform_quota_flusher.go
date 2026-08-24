@@ -48,7 +48,7 @@ const maxFlushBatchSize = 6000
 const defaultFlushBatchSize = 1000
 
 // UserPlatformQuotaUsageFlusher 将 Redis 脏集快照定期批量写入 DB。
-// 不维护任何 delta/in-process 状态；每批读取 Redis 当前绝对值覆盖写入。
+// 不维护任何 delta/in-process 状态；每批读取 Redis 当前绝对值写入，仓储层负责周窗口单调保护。
 type UserPlatformQuotaUsageFlusher struct {
 	cache       quotaDirtyCache
 	quotaRepo   quotaSnapshotWriter
@@ -178,7 +178,8 @@ func (s *UserPlatformQuotaUsageFlusher) flushOneBatch(parentCtx context.Context)
 	// 已知竞态(admin 写 × flusher 刷,仅 flusher_enabled=true 时存在):
 	// admin ResetExpiredWindow/UpsertForUser 是"先写 DB 再 DeleteCache"。若本批已 SPOP + BatchGet
 	// 读到旧 usage 快照(此刻 member 已离开脏集),而 admin 随后写 DB、本行 UPSERT 又在 admin 写之后落库,
-	// 则旧快照会覆盖 admin 刚写入的值;DeleteCache 后 Redis MISS,下次 preflight 从 DB 重载被覆盖的旧值。
+	// 仓储层已防止旧周窗口回退，并在同一周窗口内用 GREATEST 防止旧快照降低周用量；
+	// 日/月窗口以及“在同一周窗口内强制清零”的管理操作仍可能被旧快照覆盖。
 	// 因 member 已被 SPOP,admin 侧 SREM/清脏标记无法拦截本批(故未做)。影响有限,暂列为已知取舍:
 	//   - UpsertForUser 改 limit,而本 UPSERT 不写 limit 列 → limit 配置不受影响;
 	//   - ResetExpiredWindow 改 usage,但 preflight windowExpired 会在窗口真正过期时自愈重置,

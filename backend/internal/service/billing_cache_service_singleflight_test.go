@@ -79,6 +79,10 @@ func (s *billingCacheMissStub) DeleteUserPlatformQuotaCache(ctx context.Context,
 	return nil
 }
 
+func (s *billingCacheMissStub) ResetUserPlatformWeeklyQuotaCache(context.Context, int64, string, time.Time, time.Duration, bool) (bool, error) {
+	return true, nil
+}
+
 func (s *billingCacheMissStub) IncrUserPlatformQuotaUsageCache(ctx context.Context, userID int64, platform string, cost float64, ttl time.Duration, markDirty bool) error {
 	return nil
 }

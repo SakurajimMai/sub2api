@@ -526,6 +526,33 @@ end
 return 1
 `
 
+// resetUserPlatformWeeklyQuotaScript 在缓存结构有效时原子推进官方周窗口。
+// 旧 schema 会被删除，由正常计费路径从 DB 重建，避免读取不完整字段。
+const resetUserPlatformWeeklyQuotaScript = `
+if redis.call("EXISTS", KEYS[1]) == 0 then
+    return 0
+end
+local ver = redis.call("HGET", KEYS[1], "schema_version")
+if ver == false or tonumber(ver) ~= tonumber(ARGV[3]) then
+    redis.call("DEL", KEYS[1])
+    return 0
+end
+local current_start = tonumber(redis.call("HGET", KEYS[1], "weekly_window_start") or 0)
+local requested_start = tonumber(ARGV[1])
+if current_start >= requested_start then
+    redis.call("EXPIRE", KEYS[1], ARGV[2])
+    return 1
+end
+redis.call("HSET", KEYS[1], "weekly_usage", "0", "weekly_window_start", ARGV[1])
+redis.call("HINCRBY", KEYS[1], "version", 1)
+redis.call("EXPIRE", KEYS[1], ARGV[2])
+if ARGV[4] ~= "" then
+    redis.call("SADD", KEYS[2], ARGV[4])
+    redis.call("EXPIRE", KEYS[2], ARGV[5])
+end
+return 1
+`
+
 // userPlatformQuotaDirtySetKey 返回脏集（dirty set）的 Redis key。
 // 使用与 userPlatformQuotaCacheKey 相同的前缀 "billing:"。
 func userPlatformQuotaDirtySetKey() string { return "billing:" + "upq:dirty" }
@@ -556,6 +583,26 @@ func (c *billingCache) IncrUserPlatformQuotaUsageCache(ctx context.Context, user
 		return err
 	}
 	return nil
+}
+
+func (c *billingCache) ResetUserPlatformWeeklyQuotaCache(ctx context.Context, userID int64, platform string, newStart time.Time, ttl time.Duration, markDirty bool) (bool, error) {
+	member := ""
+	if markDirty {
+		member = userPlatformQuotaDirtyMember(userID, platform)
+	}
+	ttlSeconds := int(ttl.Seconds())
+	if ttlSeconds < 1 {
+		ttlSeconds = 1
+	}
+	result, err := c.rdb.Eval(ctx, resetUserPlatformWeeklyQuotaScript,
+		[]string{userPlatformQuotaCacheKey(userID, platform), userPlatformQuotaDirtySetKey()},
+		newStart.Unix(), ttlSeconds, service.UserPlatformQuotaCacheSchemaV1, member,
+		userPlatformQuotaDirtyTTLSeconds,
+	).Int64()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return false, err
+	}
+	return result == 1, nil
 }
 
 // parseUserPlatformQuotaDirtyMember 将脏集成员字符串 "userID:platform" 解析为

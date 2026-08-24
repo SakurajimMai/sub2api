@@ -725,6 +725,57 @@ export interface AlertEvent {
   created_at: string
 }
 
+export interface OpenAIWeeklyQuotaResetRule {
+  id: number
+  name: string
+  description: string
+  enabled: boolean
+  source_account_id: number
+  source_account_name?: string
+  target_group_id: number
+  target_group_name?: string
+  last_observed_reset_at?: string | null
+  last_observed_window_seconds?: number | null
+  last_observed_fetched_at?: string | null
+  last_run_at?: string | null
+  last_error?: string
+  created_at: string
+  updated_at: string
+}
+
+export type OpenAIWeeklyQuotaResetRuleInput = Pick<
+  OpenAIWeeklyQuotaResetRule,
+  'name' | 'description' | 'enabled' | 'source_account_id' | 'target_group_id'
+>
+
+export interface OpenAIWeeklyQuotaResetExecution {
+  id: number
+  rule_id: number
+  rule_name?: string
+  source_account_id: number
+  target_group_id: number
+  official_reset_at: string
+  official_window_start: string
+  official_window_seconds: number
+  status: 'pending' | 'running' | 'succeeded' | 'retryable_failed' | 'permanent_failed' | string
+  matched_users: number
+  reset_users: number
+  skipped_users: number
+  error_message?: string
+  detected_at: string
+  completed_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface OpenAIWeeklyQuotaResetCheckResult {
+  outcome: 'baseline' | 'unchanged' | 'stale' | 'triggered'
+  execution_id?: number
+  matched_users?: number
+  reset_user_ids?: number[]
+  skipped_users?: number
+}
+
 export interface EmailNotificationConfig {
   alert: {
     enabled: boolean
@@ -1192,6 +1243,35 @@ export async function deleteAlertRule(id: number): Promise<void> {
   await apiClient.delete(`/admin/ops/alert-rules/${id}`)
 }
 
+export async function listOpenAIWeeklyQuotaResetRules(): Promise<OpenAIWeeklyQuotaResetRule[]> {
+  const { data } = await apiClient.get<OpenAIWeeklyQuotaResetRule[]>('/admin/ops/openai-weekly-quota-reset-rules')
+  return data
+}
+
+export async function createOpenAIWeeklyQuotaResetRule(input: OpenAIWeeklyQuotaResetRuleInput): Promise<OpenAIWeeklyQuotaResetRule> {
+  const { data } = await apiClient.post<OpenAIWeeklyQuotaResetRule>('/admin/ops/openai-weekly-quota-reset-rules', input)
+  return data
+}
+
+export async function updateOpenAIWeeklyQuotaResetRule(id: number, input: OpenAIWeeklyQuotaResetRuleInput): Promise<OpenAIWeeklyQuotaResetRule> {
+  const { data } = await apiClient.put<OpenAIWeeklyQuotaResetRule>(`/admin/ops/openai-weekly-quota-reset-rules/${id}`, input)
+  return data
+}
+
+export async function deleteOpenAIWeeklyQuotaResetRule(id: number): Promise<void> {
+  await apiClient.delete(`/admin/ops/openai-weekly-quota-reset-rules/${id}`)
+}
+
+export async function checkOpenAIWeeklyQuotaResetRule(id: number): Promise<OpenAIWeeklyQuotaResetCheckResult> {
+  const { data } = await apiClient.post<OpenAIWeeklyQuotaResetCheckResult>(`/admin/ops/openai-weekly-quota-reset-rules/${id}/check`)
+  return data
+}
+
+export async function listOpenAIWeeklyQuotaResetExecutions(params: { rule_id?: number; limit?: number } = {}): Promise<OpenAIWeeklyQuotaResetExecution[]> {
+  const { data } = await apiClient.get<OpenAIWeeklyQuotaResetExecution[]>('/admin/ops/openai-weekly-quota-reset-executions', { params })
+  return data
+}
+
 export interface AlertEventsQuery {
   limit?: number
   status?: string
@@ -1338,6 +1418,12 @@ export const opsAPI = {
   createAlertRule,
   updateAlertRule,
   deleteAlertRule,
+  listOpenAIWeeklyQuotaResetRules,
+  createOpenAIWeeklyQuotaResetRule,
+  updateOpenAIWeeklyQuotaResetRule,
+  deleteOpenAIWeeklyQuotaResetRule,
+  checkOpenAIWeeklyQuotaResetRule,
+  listOpenAIWeeklyQuotaResetExecutions,
   listAlertEvents,
   getAlertEvent,
   updateAlertEventStatus,

@@ -463,40 +463,9 @@ func (r *userPlatformQuotaRepository) BatchSnapshotUsage(ctx context.Context, sn
 		}
 		batch := snapshots[start:end]
 
-		var sb strings.Builder
-		_, _ = sb.WriteString(
-			"INSERT INTO user_platform_quotas" +
-				" (user_id, platform, daily_usage_usd, weekly_usage_usd, monthly_usage_usd," +
-				" daily_window_start, weekly_window_start, monthly_window_start, created_at, updated_at)" +
-				" VALUES ")
+		query, args := buildUserPlatformQuotaSnapshotUpsert(batch, now)
 
-		// $1 = now（共用）；每行 8 个 per-row 参，从 $2 起连续编号。
-		args := []any{now}
-		for i, s := range batch {
-			if i > 0 {
-				_, _ = sb.WriteString(",")
-			}
-			b := len(args) // 当前 per-row 第一个参数的 0-based 索引，实际占位符 = b+1
-			fmt.Fprintf(&sb, "($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$1,$1)",
-				b+1, b+2, b+3, b+4, b+5, b+6, b+7, b+8)
-			args = append(args,
-				s.UserID, s.Platform,
-				s.DailyUsageUSD, s.WeeklyUsageUSD, s.MonthlyUsageUSD,
-				s.DailyWindowStart, s.WeeklyWindowStart, s.MonthlyWindowStart,
-			)
-		}
-
-		_, _ = sb.WriteString(
-			" ON CONFLICT (user_id, platform) WHERE deleted_at IS NULL DO UPDATE SET" +
-				"  daily_usage_usd      = EXCLUDED.daily_usage_usd," +
-				"  weekly_usage_usd     = EXCLUDED.weekly_usage_usd," +
-				"  monthly_usage_usd    = EXCLUDED.monthly_usage_usd," +
-				"  daily_window_start   = EXCLUDED.daily_window_start," +
-				"  weekly_window_start  = EXCLUDED.weekly_window_start," +
-				"  monthly_window_start = EXCLUDED.monthly_window_start," +
-				"  updated_at           = EXCLUDED.updated_at")
-
-		if _, err := client.ExecContext(ctx, sb.String(), args...); err != nil {
+		if _, err := client.ExecContext(ctx, query, args...); err != nil {
 			var pqErr *pq.Error
 			if errors.As(err, &pqErr) && pqErr.Code == "23503" {
 				return ErrUserPlatformQuotaFKViolation
@@ -505,4 +474,47 @@ func (r *userPlatformQuotaRepository) BatchSnapshotUsage(ctx context.Context, sn
 		}
 	}
 	return nil
+}
+
+func buildUserPlatformQuotaSnapshotUpsert(batch []UserPlatformQuotaSnapshot, now time.Time) (string, []any) {
+	var sb strings.Builder
+	_, _ = sb.WriteString(
+		"INSERT INTO user_platform_quotas" +
+			" (user_id, platform, daily_usage_usd, weekly_usage_usd, monthly_usage_usd," +
+			" daily_window_start, weekly_window_start, monthly_window_start, created_at, updated_at)" +
+			" VALUES ")
+
+	// $1 = now（共用）；每行 8 个 per-row 参，从 $2 起连续编号。
+	args := []any{now}
+	for i, s := range batch {
+		if i > 0 {
+			_, _ = sb.WriteString(",")
+		}
+		b := len(args) // 当前 per-row 第一个参数的 0-based 索引，实际占位符 = b+1
+		fmt.Fprintf(&sb, "($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$1,$1)",
+			b+1, b+2, b+3, b+4, b+5, b+6, b+7, b+8)
+		args = append(args,
+			s.UserID, s.Platform,
+			s.DailyUsageUSD, s.WeeklyUsageUSD, s.MonthlyUsageUSD,
+			s.DailyWindowStart, s.WeeklyWindowStart, s.MonthlyWindowStart,
+		)
+	}
+
+	_, _ = sb.WriteString(
+		" ON CONFLICT (user_id, platform) WHERE deleted_at IS NULL DO UPDATE SET" +
+			"  daily_usage_usd      = EXCLUDED.daily_usage_usd," +
+			"  weekly_usage_usd     = CASE WHEN user_platform_quotas.weekly_window_start IS NULL" +
+			" OR EXCLUDED.weekly_window_start > user_platform_quotas.weekly_window_start" +
+			" THEN EXCLUDED.weekly_usage_usd" +
+			" WHEN EXCLUDED.weekly_window_start = user_platform_quotas.weekly_window_start" +
+			" THEN GREATEST(user_platform_quotas.weekly_usage_usd, EXCLUDED.weekly_usage_usd)" +
+			" ELSE user_platform_quotas.weekly_usage_usd END," +
+			"  monthly_usage_usd    = EXCLUDED.monthly_usage_usd," +
+			"  daily_window_start   = EXCLUDED.daily_window_start," +
+			"  weekly_window_start  = CASE WHEN user_platform_quotas.weekly_window_start IS NULL" +
+			" OR EXCLUDED.weekly_window_start > user_platform_quotas.weekly_window_start" +
+			" THEN EXCLUDED.weekly_window_start ELSE user_platform_quotas.weekly_window_start END," +
+			"  monthly_window_start = EXCLUDED.monthly_window_start," +
+			"  updated_at           = EXCLUDED.updated_at")
+	return sb.String(), args
 }

@@ -362,6 +362,10 @@ func (m *mockBillingCache) DeleteUserPlatformQuotaCache(context.Context, int64, 
 	return nil
 }
 
+func (m *mockBillingCache) ResetUserPlatformWeeklyQuotaCache(context.Context, int64, string, time.Time, time.Duration, bool) (bool, error) {
+	return true, nil
+}
+
 func (m *mockBillingCache) IncrUserPlatformQuotaUsageCache(context.Context, int64, string, float64, time.Duration, bool) error {
 	return nil
 }

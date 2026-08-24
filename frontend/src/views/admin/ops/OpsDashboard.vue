@@ -107,8 +107,23 @@
       <template v-if="!isFullscreen">
         <OpsSettingsDialog :show="showSettingsDialog" @close="showSettingsDialog = false" @saved="onSettingsSaved" />
 
-        <BaseDialog :show="showAlertRulesCard" :title="t('admin.ops.alertRules.title')" width="extra-wide" @close="showAlertRulesCard = false">
-          <OpsAlertRulesCard />
+        <BaseDialog :show="showAlertRulesCard" :title="t('admin.ops.ruleManager.title')" width="extra-wide" @close="showAlertRulesCard = false">
+          <div class="mb-4 inline-flex rounded-lg bg-gray-100 p-1 dark:bg-dark-900" role="tablist">
+            <button
+              v-for="view in ruleManagerViews"
+              :key="view.value"
+              class="min-w-[112px] rounded-md px-4 py-2 text-xs font-bold transition-colors"
+              :class="activeRuleManagerView === view.value ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white' : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'"
+              type="button"
+              role="tab"
+              :aria-selected="activeRuleManagerView === view.value"
+              @click="activeRuleManagerView = view.value"
+            >
+              {{ view.label }}
+            </button>
+          </div>
+          <OpsAlertRulesCard v-if="activeRuleManagerView === 'alerts'" />
+          <OpsQuotaResetLinks v-else />
         </BaseDialog>
 
         <OpsErrorDetailsModal
@@ -173,12 +188,20 @@ import OpsSystemLogTable from './components/OpsSystemLogTable.vue'
 import OpsRequestDetailsModal, { type OpsRequestDetailsPreset } from './components/OpsRequestDetailsModal.vue'
 import OpsSettingsDialog from './components/OpsSettingsDialog.vue'
 import OpsAlertRulesCard from './components/OpsAlertRulesCard.vue'
+import OpsQuotaResetLinks from './components/OpsQuotaResetLinks.vue'
 
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const adminSettingsStore = useAdminSettingsStore()
 const { t } = useI18n()
+
+type RuleManagerView = 'alerts' | 'quota'
+const activeRuleManagerView = ref<RuleManagerView>('alerts')
+const ruleManagerViews = computed<Array<{ value: RuleManagerView; label: string }>>(() => [
+  { value: 'alerts', label: t('admin.ops.ruleManager.alerts') },
+  { value: 'quota', label: t('admin.ops.ruleManager.quotaLinks') }
+])
 
 const opsEnabled = computed(() => adminSettingsStore.opsMonitoringEnabled)
 

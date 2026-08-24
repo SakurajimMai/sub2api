@@ -212,6 +212,21 @@ func ProvideOpenAIQuotaAutoResetService(
 	return service
 }
 
+// ProvideOpenAIWeeklyQuotaResetLinkService 启动官方周额度重置联动扫描器。
+func ProvideOpenAIWeeklyQuotaResetLinkService(
+	repo OpenAIWeeklyQuotaResetLinkRepository,
+	accountRepo AccountRepository,
+	groupRepo GroupRepository,
+	quotaService *OpenAIQuotaService,
+	cache BillingCache,
+	leaderLock LeaderLockCache,
+	cfg *config.Config,
+) *OpenAIWeeklyQuotaResetLinkService {
+	service := NewOpenAIWeeklyQuotaResetLinkService(repo, accountRepo, groupRepo, quotaService, cache, leaderLock, cfg.Database.UserPlatformQuotaFlusherEnabled)
+	service.Start()
+	return service
+}
+
 func ProvideAccountUsageService(
 	accountRepo AccountRepository,
 	usageLogRepo UsageLogRepository,
@@ -866,6 +881,7 @@ var ProviderSet = wire.NewSet(
 	ProvideOpenAITokenProvider,
 	ProvideOpenAIQuotaService,
 	ProvideOpenAIQuotaAutoResetService,
+	ProvideOpenAIWeeklyQuotaResetLinkService,
 	ProvideGrokQuotaService,
 	ProvideCNProviderQuotaService,
 	ProvideCNProviderBalanceService,

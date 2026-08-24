@@ -97,6 +97,9 @@ parent_count="$(git -C "$tmp" rev-list --parents -n 1 HEAD | awk '{print NF - 1}
 
 merge_script="$ROOT/.fork/merge-upstream-preserving-workflows.sh"
 [[ -f "$merge_script" ]] || fail "缺少统一的 workflow 冲突恢复脚本"
+if grep -Eq '(^|[^[:alnum:]_])(mapfile|readarray)([^[:alnum:]_]|$)' "$merge_script"; then
+  fail "统一合并脚本必须兼容 macOS Bash 3，不能使用 mapfile/readarray"
+fi
 
 workflow_conflict_tmp="$suite_tmp/workflow-conflict"
 mkdir -p "$workflow_conflict_tmp/.github/workflows" "$workflow_conflict_tmp/.fork"

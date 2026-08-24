@@ -553,6 +553,10 @@ func (s *billingCacheStub) DeleteUserPlatformQuotaCache(ctx context.Context, use
 	panic("unexpected DeleteUserPlatformQuotaCache call")
 }
 
+func (s *billingCacheStub) ResetUserPlatformWeeklyQuotaCache(ctx context.Context, userID int64, platform string, newStart time.Time, ttl time.Duration, markDirty bool) (bool, error) {
+	panic("unexpected ResetUserPlatformWeeklyQuotaCache call")
+}
+
 func (s *billingCacheStub) IncrUserPlatformQuotaUsageCache(ctx context.Context, userID int64, platform string, cost float64, ttl time.Duration, markDirty bool) error {
 	panic("unexpected IncrUserPlatformQuotaUsageCache call")
 }

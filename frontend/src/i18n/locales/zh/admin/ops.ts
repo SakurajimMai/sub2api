@@ -568,6 +568,60 @@ export default {
           cooldownRange: '冷却期必须在 0 到 1440 分钟之间'
         }
       },
+      ruleManager: {
+        title: '规则管理',
+        alerts: '告警规则',
+        quotaLinks: '额度联动'
+      },
+      quotaResetLinks: {
+        title: 'OpenAI 周额度联动',
+        description: '监测所选 Pro 账号的官方七天窗口；无论按时还是提前重置，只要官方重置时间推进，就清零目标分组已有的 OpenAI 周额度。',
+        create: '新建联动',
+        createTitle: '新建额度联动',
+        editTitle: '编辑额度联动',
+        empty: '暂无额度联动规则',
+        loadFailed: '加载额度联动失败',
+        saveSuccess: '额度联动已保存',
+        saveFailed: '保存额度联动失败',
+        deleteSuccess: '额度联动已删除',
+        deleteFailed: '删除额度联动失败',
+        deleteTitle: '删除该额度联动？',
+        deleteMessage: '规则将停止检测，既有执行历史会保留。',
+        validation: '请填写名称，并选择官方账号和目标分组',
+        checkNow: '立即检测',
+        checking: '检测中',
+        checkFailed: '检测官方周额度失败',
+        baselinePending: '尚未建立基线',
+        baselineHint: '首次检测只记录当前官方重置时间作为基线，不会清零用户额度；此后官方重置时间只要向前推进就会触发。',
+        history: '最近执行记录',
+        historyEmpty: '暂无执行记录',
+        counts: '命中 {matched} / 重置 {reset} / 跳过 {skipped}',
+        table: {
+          rule: '规则',
+          binding: '官方账号 → 用户分组',
+          lastReset: '当前官方重置时间',
+          status: '状态'
+        },
+        form: {
+          name: '名称',
+          description: '描述',
+          account: 'OpenAI Pro OAuth 账号',
+          group: '目标用户分组'
+        },
+        outcomes: {
+          baseline: '已建立当前官方窗口基线，本次未重置用户额度',
+          unchanged: '官方窗口未发生变化',
+          stale: '检测到旧窗口，已忽略',
+          triggered: '检测到新的官方窗口，用户周额度已联动重置'
+        },
+        status: {
+          pending: '等待执行',
+          running: '执行中',
+          succeeded: '已完成',
+          retryable_failed: '等待重试',
+          permanent_failed: '执行失败'
+        }
+      },
       runtime: {
         title: '运维监控运行设置',
         description: '配置存储在数据库中，无需修改 config 文件即可生效。',

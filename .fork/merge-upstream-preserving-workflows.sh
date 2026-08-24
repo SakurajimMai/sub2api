@@ -25,7 +25,10 @@ fi
 
 bash "$ROOT/.fork/restore-managed-workflows.sh" "$BASE_REF"
 
-mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+conflicts=()
+while IFS= read -r conflict; do
+  conflicts+=("$conflict")
+done < <(git diff --name-only --diff-filter=U)
 if [[ ${#conflicts[@]} -gt 0 ]]; then
   printf 'Remaining non-workflow conflicts:\n' >&2
   printf '  %s\n' "${conflicts[@]}" >&2

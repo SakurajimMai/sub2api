@@ -29,6 +29,7 @@ func ProvideAdminHandlers(
 	promoHandler *admin.PromoHandler,
 	settingHandler *admin.SettingHandler,
 	opsHandler *admin.OpsHandler,
+	openAIWeeklyQuotaResetHandler *admin.OpenAIWeeklyQuotaResetLinkHandler,
 	systemHandler *admin.SystemHandler,
 	subscriptionHandler *admin.SubscriptionHandler,
 	usageHandler *admin.UsageHandler,
@@ -71,6 +72,7 @@ func ProvideAdminHandlers(
 		Promo:                  promoHandler,
 		Setting:                settingHandler,
 		Ops:                    opsHandler,
+		OpenAIWeeklyQuotaReset: openAIWeeklyQuotaResetHandler,
 		System:                 systemHandler,
 		Subscription:           subscriptionHandler,
 		Usage:                  usageHandler,
@@ -197,6 +199,7 @@ func ProvideHandlers(
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 	_ *service.OpenAIQuotaAutoResetService,
+	_ *service.OpenAIWeeklyQuotaResetLinkService,
 ) *Handlers {
 	return &Handlers{
 		Auth:             authHandler,
@@ -266,6 +269,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewPromoHandler,
 	ProvideAdminSettingHandler,
 	admin.NewOpsHandler,
+	admin.NewOpenAIWeeklyQuotaResetLinkHandler,
 	ProvideSystemHandler,
 	admin.NewSubscriptionHandler,
 	admin.NewUsageHandler,

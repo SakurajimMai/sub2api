@@ -568,6 +568,60 @@ export default {
           cooldownRange: 'Cooldown must be between 0 and 1440 minutes'
         }
       },
+      ruleManager: {
+        title: 'Rule Management',
+        alerts: 'Alert Rules',
+        quotaLinks: 'Quota Links'
+      },
+      quotaResetLinks: {
+        title: 'OpenAI Weekly Quota Links',
+        description: 'Monitor the official seven-day window of a selected Pro account. Scheduled or early resets both clear existing OpenAI weekly usage for users in the target group.',
+        create: 'Create Link',
+        createTitle: 'Create Quota Link',
+        editTitle: 'Edit Quota Link',
+        empty: 'No quota link rules',
+        loadFailed: 'Failed to load quota links',
+        saveSuccess: 'Quota link saved',
+        saveFailed: 'Failed to save quota link',
+        deleteSuccess: 'Quota link deleted',
+        deleteFailed: 'Failed to delete quota link',
+        deleteTitle: 'Delete this quota link?',
+        deleteMessage: 'Detection will stop. Existing execution history is retained.',
+        validation: 'Enter a name and select an official account and target group',
+        checkNow: 'Check Now',
+        checking: 'Checking',
+        checkFailed: 'Failed to check the official weekly quota',
+        baselinePending: 'Baseline not established',
+        baselineHint: 'The first check only records the current official reset time as a baseline and does not clear user quota. Any later forward change triggers the link.',
+        history: 'Recent Executions',
+        historyEmpty: 'No executions yet',
+        counts: 'Matched {matched} / Reset {reset} / Skipped {skipped}',
+        table: {
+          rule: 'Rule',
+          binding: 'Official Account → User Group',
+          lastReset: 'Current Official Reset',
+          status: 'Status'
+        },
+        form: {
+          name: 'Name',
+          description: 'Description',
+          account: 'OpenAI Pro OAuth Account',
+          group: 'Target User Group'
+        },
+        outcomes: {
+          baseline: 'Current official window recorded as the baseline; no user quota was reset',
+          unchanged: 'The official window has not changed',
+          stale: 'An older window was detected and ignored',
+          triggered: 'A new official window was detected and user weekly quota was reset'
+        },
+        status: {
+          pending: 'Pending',
+          running: 'Running',
+          succeeded: 'Succeeded',
+          retryable_failed: 'Retry Pending',
+          permanent_failed: 'Failed'
+        }
+      },
       runtime: {
         title: 'Ops Runtime Settings',
         description: 'Stored in database; changes take effect without editing config files.',

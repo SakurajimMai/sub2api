@@ -82,6 +82,9 @@ type BillingCache interface {
 	// IncrUserPlatformQuotaUsageCache 在缓存命中时累加用量；缓存未命中（key 不存在）静默返回 nil。
 	// markDirty=true 时将该 key 的 member 写入 Redis 脏集，供 flusher 批量回写 DB。
 	IncrUserPlatformQuotaUsageCache(ctx context.Context, userID int64, platform string, cost float64, ttl time.Duration, markDirty bool) error
+	// ResetUserPlatformWeeklyQuotaCache 原子清零周用量并推进到官方窗口起点。
+	// 缓存不存在或 schema 过旧时返回 updated=false。
+	ResetUserPlatformWeeklyQuotaCache(ctx context.Context, userID int64, platform string, newStart time.Time, ttl time.Duration, markDirty bool) (updated bool, err error)
 
 	// 脏集读写，供 flusher 使用。
 	PopDirtyUserPlatformQuotaKeys(ctx context.Context, n int) ([]UserPlatformQuotaKey, error)
