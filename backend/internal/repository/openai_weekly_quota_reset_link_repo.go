@@ -56,7 +56,7 @@ func (r *openAIWeeklyQuotaResetLinkRepository) listRules(ctx context.Context, en
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	result := make([]service.OpenAIWeeklyQuotaResetRule, 0)
 	for rows.Next() {
 		item, scanErr := scanOpenAIWeeklyRule(rows)
@@ -132,7 +132,7 @@ func (r *openAIWeeklyQuotaResetLinkRepository) ListExecutions(ctx context.Contex
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := make([]service.OpenAIWeeklyQuotaResetExecution, 0)
 	for rows.Next() {
 		var e service.OpenAIWeeklyQuotaResetExecution
