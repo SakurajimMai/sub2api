@@ -17,8 +17,6 @@ require_workflow_guard() {
     || fail "$workflow 未检查暂存区中的工作流恢复结果"
   grep -Fq 'git commit --amend --no-edit' "$ROOT/$workflow" \
     || fail "$workflow 必须修订原合并提交，不能追加包含 workflow 变更的中间提交"
-  grep -Fq 'git merge --no-ff' "$ROOT/$workflow" \
-    || fail "$workflow 必须强制生成可修订的双父合并提交"
 }
 
 require_workflow_guard ".github/workflows/mirror-upstream-release.yml"
@@ -42,8 +40,11 @@ require_dynamic_go_check ".github/workflows/backend-ci.yml" 2
 require_dynamic_go_check ".github/workflows/release.yml" 1
 require_dynamic_go_check ".github/workflows/security-scan.yml" 1
 
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+suite_tmp="$(mktemp -d)"
+trap 'rm -rf "$suite_tmp"' EXIT
+
+tmp="$suite_tmp/clean-merge"
+mkdir -p "$tmp"
 
 git -C "$tmp" init -q
 git -C "$tmp" config user.name "Fork workflow test"
@@ -93,5 +94,115 @@ grep -Fqx 'upstream app change' "$tmp/app.txt" \
 
 parent_count="$(git -C "$tmp" rev-list --parents -n 1 HEAD | awk '{print NF - 1}')"
 [[ "$parent_count" -eq 2 ]] || fail "修订后必须保留双父合并历史"
+
+merge_script="$ROOT/.fork/merge-upstream-preserving-workflows.sh"
+[[ -f "$merge_script" ]] || fail "缺少统一的 workflow 冲突恢复脚本"
+
+workflow_conflict_tmp="$suite_tmp/workflow-conflict"
+mkdir -p "$workflow_conflict_tmp/.github/workflows" "$workflow_conflict_tmp/.fork"
+git -C "$workflow_conflict_tmp" init -q
+git -C "$workflow_conflict_tmp" config user.name "Fork workflow test"
+git -C "$workflow_conflict_tmp" config user.email "fork-workflow-test@example.invalid"
+git -C "$workflow_conflict_tmp" config core.autocrlf false
+workflow_conflict_branch="$(git -C "$workflow_conflict_tmp" symbolic-ref --short HEAD)"
+
+printf 'name: baseline\n' >"$workflow_conflict_tmp/.github/workflows/ci.yml"
+printf 'base app\n' >"$workflow_conflict_tmp/app.txt"
+git -C "$workflow_conflict_tmp" add -A
+git -C "$workflow_conflict_tmp" commit -qm "common baseline"
+git -C "$workflow_conflict_tmp" branch upstream
+
+printf 'name: fork managed\n' >"$workflow_conflict_tmp/.github/workflows/ci.yml"
+git -C "$workflow_conflict_tmp" add -A
+git -C "$workflow_conflict_tmp" commit -qm "fork workflow"
+workflow_conflict_base="$(git -C "$workflow_conflict_tmp" rev-parse HEAD)"
+
+git -C "$workflow_conflict_tmp" checkout -q upstream
+printf 'name: upstream replacement\n' >"$workflow_conflict_tmp/.github/workflows/ci.yml"
+printf 'upstream app\n' >"$workflow_conflict_tmp/app.txt"
+git -C "$workflow_conflict_tmp" add -A
+git -C "$workflow_conflict_tmp" commit -qm "upstream workflow and app"
+
+git -C "$workflow_conflict_tmp" checkout -q "$workflow_conflict_branch"
+cp "$ROOT/.fork/restore-managed-workflows.sh" "$workflow_conflict_tmp/.fork/restore-managed-workflows.sh"
+cp "$merge_script" "$workflow_conflict_tmp/.fork/merge-upstream-preserving-workflows.sh"
+(
+  cd "$workflow_conflict_tmp"
+  bash ./.fork/merge-upstream-preserving-workflows.sh \
+    "$workflow_conflict_base" "test: merge workflow conflict" upstream
+)
+
+[[ -z "$(git -C "$workflow_conflict_tmp" diff --name-only --diff-filter=U)" ]] \
+  || fail "仅 workflow 冲突时不应留下未解决文件"
+git -C "$workflow_conflict_tmp" diff --exit-code \
+  "$workflow_conflict_base" HEAD -- .github/workflows \
+  || fail "workflow 冲突未恢复为 fork 基线"
+grep -Fqx 'upstream app' "$workflow_conflict_tmp/app.txt" \
+  || fail "恢复 workflow 冲突时必须保留上游业务变更"
+workflow_parent_count="$(git -C "$workflow_conflict_tmp" rev-list --parents -n 1 HEAD | awk '{print NF - 1}')"
+[[ "$workflow_parent_count" -eq 2 ]] || fail "workflow 冲突恢复后必须生成双父合并提交"
+
+business_conflict_tmp="$suite_tmp/business-conflict"
+mkdir -p "$business_conflict_tmp/.github/workflows" "$business_conflict_tmp/.fork"
+git -C "$business_conflict_tmp" init -q
+git -C "$business_conflict_tmp" config user.name "Fork workflow test"
+git -C "$business_conflict_tmp" config user.email "fork-workflow-test@example.invalid"
+git -C "$business_conflict_tmp" config core.autocrlf false
+business_conflict_branch="$(git -C "$business_conflict_tmp" symbolic-ref --short HEAD)"
+
+printf 'name: baseline\n' >"$business_conflict_tmp/.github/workflows/ci.yml"
+printf 'base app\n' >"$business_conflict_tmp/app.txt"
+git -C "$business_conflict_tmp" add -A
+git -C "$business_conflict_tmp" commit -qm "common baseline"
+git -C "$business_conflict_tmp" branch upstream
+
+printf 'name: fork managed\n' >"$business_conflict_tmp/.github/workflows/ci.yml"
+printf 'fork app\n' >"$business_conflict_tmp/app.txt"
+git -C "$business_conflict_tmp" add -A
+git -C "$business_conflict_tmp" commit -qm "fork workflow and app"
+business_conflict_base="$(git -C "$business_conflict_tmp" rev-parse HEAD)"
+
+git -C "$business_conflict_tmp" checkout -q upstream
+printf 'name: upstream replacement\n' >"$business_conflict_tmp/.github/workflows/ci.yml"
+printf 'upstream app\n' >"$business_conflict_tmp/app.txt"
+git -C "$business_conflict_tmp" add -A
+git -C "$business_conflict_tmp" commit -qm "upstream workflow and app"
+
+git -C "$business_conflict_tmp" checkout -q "$business_conflict_branch"
+cp "$ROOT/.fork/restore-managed-workflows.sh" "$business_conflict_tmp/.fork/restore-managed-workflows.sh"
+cp "$merge_script" "$business_conflict_tmp/.fork/merge-upstream-preserving-workflows.sh"
+set +e
+(
+  cd "$business_conflict_tmp"
+  bash ./.fork/merge-upstream-preserving-workflows.sh \
+    "$business_conflict_base" "test: keep business conflict" upstream
+)
+business_status=$?
+set -e
+
+[[ "$business_status" -eq 2 ]] \
+  || fail "真实业务冲突应返回退出码 2，实际为 $business_status"
+git -C "$business_conflict_tmp" diff --name-only --diff-filter=U \
+  | grep -Fxq 'app.txt' \
+  || fail "真实业务冲突必须保持未解决"
+if git -C "$business_conflict_tmp" diff --name-only --diff-filter=U \
+  | grep -Fq '.github/workflows/'; then
+  fail "fork workflow 冲突应在报告业务冲突前完成恢复"
+fi
+git -C "$business_conflict_tmp" merge --abort
+
+for workflow in \
+  ".github/workflows/mirror-upstream-release.yml" \
+  ".github/workflows/sync-upstream.yml"; do
+  grep -Fq './.fork/merge-upstream-preserving-workflows.sh' "$ROOT/$workflow" \
+    || fail "$workflow 未使用统一的 workflow 冲突恢复脚本"
+done
+
+if grep -Fq 'gh pr create' "$ROOT/.github/workflows/mirror-upstream-release.yml"; then
+  fail "mirror workflow 不应再创建无内容冲突 PR"
+fi
+if grep -Fq 'git commit --allow-empty' "$ROOT/.github/workflows/sync-upstream.yml"; then
+  fail "sync workflow 不应再创建空冲突分支"
+fi
 
 echo "PASS: 上游 workflow 变更被隔离，业务代码变更被保留"

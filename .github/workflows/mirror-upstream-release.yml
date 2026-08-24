@@ -29,7 +29,6 @@ on:
 permissions:
   contents: write
   actions: write
-  pull-requests: write
 
 concurrency:
   # Share lock with Sync Upstream so both never rewrite main at once
@@ -185,48 +184,36 @@ jobs:
           UP_COMMIT="$(git rev-parse "refs/tags/upstream-mirror/${TAG}")"
           echo "Merging upstream ${TAG} @ ${UP_COMMIT}"
 
-          if git merge --no-ff --no-edit -m "chore(sync): merge upstream ${TAG} for mirrored release" "refs/tags/upstream-mirror/${TAG}"; then
-            echo "Merge clean."
-          else
-            echo "Merge conflicts while integrating ${TAG}."
+          chmod +x .fork/merge-upstream-preserving-workflows.sh \
+            .fork/restore-managed-workflows.sh .fork/apply-overlay.sh
+
+          set +e
+          ./.fork/merge-upstream-preserving-workflows.sh \
+            origin/main \
+            "chore(sync): merge upstream ${TAG} for mirrored release" \
+            "refs/tags/upstream-mirror/${TAG}"
+          merge_status=$?
+          set -e
+
+          if [[ $merge_status -ne 0 ]]; then
+            mapfile -t CONFLICTS < <(git diff --name-only --diff-filter=U || true)
+            {
+              echo "## Mirror blocked by non-workflow conflicts"
+              echo
+              echo "Upstream: ${TAG} @ ${UP_COMMIT}"
+              echo
+              if [[ ${#CONFLICTS[@]} -gt 0 ]]; then
+                printf -- '- `%s`\n' "${CONFLICTS[@]}"
+              else
+                echo '- `unknown`'
+              fi
+              echo
+              echo "Fetch ${TAG}, merge it into main locally, resolve the files above, then re-run this workflow."
+            } >> "$GITHUB_STEP_SUMMARY"
             git merge --abort || true
-
-            BRANCH="mirror/${TAG}-conflicts"
-            git checkout -B "$BRANCH" origin/main
-            git commit --allow-empty -m "chore(mirror): upstream ${TAG} needs manual merge"
-            git push -u origin "$BRANCH" --force-with-lease
-
-            TITLE="[CONFLICTS] mirror upstream ${TAG} → release"
-            BODY=$(cat <<EOF
-          ## Upstream release mirror blocked
-
-          Could not auto-merge upstream tag \`${TAG}\` into this fork's \`main\`.
-
-          ### Fix
-
-          \`\`\`bash
-          git fetch upstream "refs/tags/${TAG}:refs/tags/upstream-mirror/${TAG}"
-          git checkout main && git pull
-          git merge upstream-mirror/${TAG}
-          # resolve conflicts
-          ./.fork/apply-overlay.sh
-          git push origin main
-          git tag -a ${TAG} -m "Mirror upstream ${TAG}"
-          git push origin ${TAG}
-          gh workflow run release.yml -f tag=${TAG}
-          \`\`\`
-          EOF
-          )
-            EXISTING="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' || true)"
-            if [[ -n "${EXISTING}" && "${EXISTING}" != "null" ]]; then
-              gh pr edit "$EXISTING" --title "$TITLE" --body "$BODY"
-            else
-              gh pr create --base main --head "$BRANCH" --title "$TITLE" --body "$BODY"
-            fi
-            exit 1
+            exit "$merge_status"
           fi
 
-          chmod +x .fork/restore-managed-workflows.sh .fork/apply-overlay.sh
           ./.fork/restore-managed-workflows.sh origin/main
           ./.fork/apply-overlay.sh
 
