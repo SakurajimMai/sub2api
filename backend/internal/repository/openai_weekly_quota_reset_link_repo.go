@@ -395,7 +395,7 @@ func (r *openAIWeeklyQuotaResetLinkRepository) ApplyObservedWeeklyWindow(ctx con
 		(source_account_id, source_identity_fingerprint, reset_event_id, meter_key, event_source,
 		evidence_kind, status, official_reset_at, official_window_start, official_window_seconds,
 		post_used_percent, observed_at, confirmed_at, created_at, updated_at)
-		SELECT source_account_id, $2, $3, $4, $5, $6, 'confirmed', $7, $8, $9, $10, $11, $11, $11, $11
+		SELECT source_account_id, $2::text, $3::text, $4::text, $5::text, $6::text, 'confirmed', $7::timestamptz, $8::timestamptz, $9::bigint, $10::double precision, $11::timestamptz, $11::timestamptz, $11::timestamptz, $11::timestamptz
 		FROM openai_weekly_quota_reset_rules WHERE id=$1
 		ON CONFLICT (source_account_id, source_identity_fingerprint, reset_event_id) DO NOTHING RETURNING id`,
 		o.RuleID, o.Identity.Fingerprint, o.ResetEventID, o.MeterKey, o.EventSource, o.EvidenceKind,
@@ -424,7 +424,7 @@ func (r *openAIWeeklyQuotaResetLinkRepository) ApplyObservedWeeklyWindow(ctx con
 		(rule_id, source_account_id, target_group_id, reset_event_id, event_source, evidence_kind,
 		official_reset_at, official_window_start, official_window_seconds, status, stage,
 		detected_at, created_at, updated_at)
-		SELECT id, source_account_id, target_group_id, $2, $3, $4, $5, $6, $7, $8, 'weekly_pending', $9, $9, $9
+		SELECT id, source_account_id, target_group_id, $2::text, $3::text, $4::text, $5::timestamptz, $6::timestamptz, $7::bigint, $8::text, 'weekly_pending', $9::timestamptz, $9::timestamptz, $9::timestamptz
 		FROM openai_weekly_quota_reset_rules WHERE id=$1 RETURNING id`,
 		o.RuleID, o.ResetEventID, o.EventSource, o.EvidenceKind, o.OfficialResetAt,
 		o.OfficialWindowStart, o.OfficialWindowSeconds, service.OpenAIWeeklyQuotaExecutionRunning, o.DetectedAt).Scan(&executionID)
@@ -937,8 +937,8 @@ func (r *openAIWeeklyQuotaResetLinkRepository) RecordResetEvent(ctx context.Cont
 		(source_account_id, source_identity_fingerprint, reset_event_id, meter_key, event_source,
 		evidence_kind, status, dispatch_status, reason, official_reset_at, official_window_start, official_window_seconds,
 		pre_used_percent, post_used_percent, observed_at, confirmed_at, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$15,
-			$8,$9,$10,$11,$12,$13,$14,CASE WHEN $7='confirmed' THEN $14 ELSE NULL END,$14,$14)
+		VALUES ($1::bigint,$2::text,$3::text,$4::text,$5::text,$6::text,$7::text,$15::text,
+			$8::text,$9::timestamptz,$10::timestamptz,$11::bigint,$12::double precision,$13::double precision,$14::timestamptz,CASE WHEN $7='confirmed' THEN $14::timestamptz ELSE NULL::timestamptz END,$14::timestamptz,$14::timestamptz)
 		ON CONFLICT (source_account_id, source_identity_fingerprint, reset_event_id) DO UPDATE SET
 		evidence_kind=CASE WHEN openai_weekly_quota_reset_events.status='confirmed' THEN openai_weekly_quota_reset_events.evidence_kind ELSE EXCLUDED.evidence_kind END,
 		status=CASE WHEN openai_weekly_quota_reset_events.status='confirmed' THEN 'confirmed'
