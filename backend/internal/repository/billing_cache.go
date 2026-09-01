@@ -464,6 +464,10 @@ local weekly_window_start = ARGV[14]
 local pending_generation = tonumber(ARGV[7])
 local pending_usage = ARGV[8]
 local pending_event_id = ARGV[9]
+local schema = tonumber(ARGV[5])
+if incoming_generation > 0 or pending_generation > 0 or fence_generation > 0 then
+    schema = 2
+end
 local existing_generation = tonumber(redis.call("HGET", KEYS[1], "weekly_generation") or 0)
 local existing_pending_generation = tonumber(redis.call("HGET", KEYS[1], "weekly_pending_generation") or 0)
 local existing_window_start = tonumber(redis.call("HGET", KEYS[1], "weekly_window_start") or 0)
@@ -518,7 +522,7 @@ redis.call("HSET", KEYS[1],
     "weekly_usage", weekly_usage,
     "monthly_usage", ARGV[3],
     "version", ARGV[4],
-    "schema_version", ARGV[5],
+    "schema_version", schema,
     "weekly_generation", weekly_generation,
     "weekly_pending_generation", pending_generation,
     "weekly_pending_usage", pending_usage,
@@ -645,9 +649,17 @@ if redis.call("EXISTS", KEYS[1]) == 0 then
     return 0
 end
 local schema = tonumber(redis.call("HGET", KEYS[1], "schema_version") or 0)
-if schema ~= tonumber(ARGV[4]) then
+if schema ~= 1 and schema ~= tonumber(ARGV[4]) then
     redis.call("DEL", KEYS[1])
     return 0
+end
+if schema == 1 then
+    redis.call("HSET", KEYS[1],
+        "schema_version", ARGV[4],
+        "weekly_generation", "0",
+        "weekly_pending_generation", "0",
+        "weekly_pending_usage", "0",
+        "weekly_pending_event_id", "")
 end
 local current_generation = tonumber(redis.call("HGET", KEYS[1], "weekly_generation") or 0)
 local pending_generation = tonumber(redis.call("HGET", KEYS[1], "weekly_pending_generation") or 0)
@@ -668,8 +680,16 @@ if redis.call("EXISTS", KEYS[1]) == 0 then
     return -1
 end
 local schema = tonumber(redis.call("HGET", KEYS[1], "schema_version") or 0)
-if schema ~= tonumber(ARGV[3]) then
+if schema ~= 1 and schema ~= tonumber(ARGV[3]) then
     return -1
+end
+if schema == 1 then
+    redis.call("HSET", KEYS[1],
+        "schema_version", tonumber(ARGV[3]),
+        "weekly_generation", "0",
+        "weekly_pending_generation", "0",
+        "weekly_pending_usage", "0",
+        "weekly_pending_event_id", "")
 end
 redis.call("HINCRBYFLOAT", KEYS[1], "daily_usage", ARGV[1])
 redis.call("HINCRBYFLOAT", KEYS[1], "monthly_usage", ARGV[1])

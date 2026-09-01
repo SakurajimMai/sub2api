@@ -1116,11 +1116,11 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 	}
 
 	// --- cache HIT with current schema → 直接用 entry，不查 DB ---
-	if cacheErr == nil && ok && entry != nil && entry.SchemaVersion == UserPlatformQuotaCacheSchemaV2 {
+	if cacheErr == nil && ok && entry != nil && (entry.SchemaVersion == UserPlatformQuotaCacheSchemaV1 || entry.SchemaVersion == UserPlatformQuotaCacheSchemaV2) {
 		now := time.Now()
 		dailyUsage := entry.DailyUsageUSD
 		weeklyUsage := entry.WeeklyUsageUSD
-		if entry.WeeklyPendingGeneration > entry.WeeklyGeneration {
+		if entry.SchemaVersion == UserPlatformQuotaCacheSchemaV2 && entry.WeeklyPendingGeneration > entry.WeeklyGeneration {
 			weeklyUsage = entry.WeeklyPendingUsageUSD
 		}
 		monthlyUsage := entry.MonthlyUsageUSD
@@ -1164,20 +1164,20 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 		isSentinel := entry.DailyLimitUSD == nil && entry.WeeklyLimitUSD == nil && entry.MonthlyLimitUSD == nil
 		if windowExpired && s.cache != nil && !isSentinel {
 			refreshed := &UserPlatformQuotaCacheEntry{
-				DailyUsageUSD:      dailyUsage,
-				WeeklyUsageUSD:     weeklyUsage,
-				MonthlyUsageUSD:    monthlyUsage,
-				SchemaVersion:      UserPlatformQuotaCacheSchemaV2,
-				WeeklyGeneration:   entry.WeeklyGeneration,
+				DailyUsageUSD:           dailyUsage,
+				WeeklyUsageUSD:          weeklyUsage,
+				MonthlyUsageUSD:         monthlyUsage,
+				SchemaVersion:           entry.SchemaVersion,
+				WeeklyGeneration:        entry.WeeklyGeneration,
 				WeeklyPendingGeneration: entry.WeeklyPendingGeneration,
 				WeeklyPendingUsageUSD:   entry.WeeklyPendingUsageUSD,
 				WeeklyPendingEventID:    entry.WeeklyPendingEventID,
-				DailyLimitUSD:      entry.DailyLimitUSD,
-				WeeklyLimitUSD:     entry.WeeklyLimitUSD,
-				MonthlyLimitUSD:    entry.MonthlyLimitUSD,
-				DailyWindowStart:   newDailyStart,
-				WeeklyWindowStart:  newWeeklyStart,
-				MonthlyWindowStart: newMonthlyStart,
+				DailyLimitUSD:           entry.DailyLimitUSD,
+				WeeklyLimitUSD:          entry.WeeklyLimitUSD,
+				MonthlyLimitUSD:         entry.MonthlyLimitUSD,
+				DailyWindowStart:        newDailyStart,
+				WeeklyWindowStart:       newWeeklyStart,
+				MonthlyWindowStart:      newMonthlyStart,
 			}
 			ttl := time.Duration(s.cfg.Billing.UserPlatformQuotaCacheTTLSeconds) * time.Second
 			setCtx, setCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -1237,7 +1237,7 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 			startOfDay := timezone.StartOfDay(now)
 			startOfWeek := timezone.StartOfWeek(now)
 			sentinel := &UserPlatformQuotaCacheEntry{
-				SchemaVersion:      UserPlatformQuotaCacheSchemaV2,
+				SchemaVersion:      UserPlatformQuotaCacheSchemaV1,
 				DailyWindowStart:   &startOfDay,
 				WeeklyWindowStart:  &startOfWeek,
 				MonthlyWindowStart: &now,
@@ -1288,11 +1288,15 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 	}
 
 	// cache MISS 或旧版 entry → 回填完整 entry（含 limits 和 window_start）
+	cacheSchema := UserPlatformQuotaCacheSchemaV1
+	if rec.WeeklyGeneration > 0 || rec.WeeklyReservedGeneration > 0 {
+		cacheSchema = UserPlatformQuotaCacheSchemaV2
+	}
 	newEntry := &UserPlatformQuotaCacheEntry{
 		DailyUsageUSD:      dailyUsage,
 		WeeklyUsageUSD:     weeklyUsage,
 		MonthlyUsageUSD:    monthlyUsage,
-		SchemaVersion:      UserPlatformQuotaCacheSchemaV2,
+		SchemaVersion:      cacheSchema,
 		WeeklyGeneration:   rec.WeeklyGeneration,
 		DailyLimitUSD:      rec.DailyLimitUSD,
 		WeeklyLimitUSD:     rec.WeeklyLimitUSD,

@@ -314,7 +314,13 @@ func quotaPreparedCredentialsMatch(account *Account, accessToken, chatGPTAccount
 	if account.IsOpenAIAgentIdentity() {
 		return true
 	}
-	return strings.TrimSpace(account.GetOpenAIAccessToken()) == strings.TrimSpace(accessToken)
+	storedToken := strings.TrimSpace(account.GetOpenAIAccessToken())
+	// 有些旧账号只把 access token 放在共享缓存，数据库字段为空；此时
+	// 无法进行 token 文本比对，交给上游 401 恢复流程判定缓存是否过期。
+	if storedToken == "" {
+		return true
+	}
+	return storedToken == strings.TrimSpace(accessToken)
 }
 
 func openAIQuotaIdentitySource(account *Account) string {
@@ -743,17 +749,6 @@ func (s *OpenAIQuotaService) buildCodexQuotaHeaders(ctx context.Context, account
 	}
 	headers["authorization"] = assertion
 	return headers, key.taskID, nil
-}
-
-func (s *OpenAIQuotaService) redactQuotaErrorBody(ctx context.Context, accountID int64, body string) string {
-	if s == nil || s.accountRepo == nil {
-		return body
-	}
-	account, err := s.accountRepo.GetByID(ctx, accountID)
-	if err != nil || account == nil {
-		return body
-	}
-	return string(redactAgentIdentitySensitiveBodyForAccount(ctx, s.accountRepo, account, []byte(body)))
 }
 
 // buildCodexCommonHeaders sets the request headers expected by the chatgpt.com
