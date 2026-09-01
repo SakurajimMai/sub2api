@@ -27,6 +27,15 @@ export const apiClient: AxiosInstance = axios.create({
   }
 })
 
+const responseRequestId = (headers: unknown): string | undefined => {
+  if (!headers || typeof headers !== 'object') return undefined
+  const candidate = headers as { get?: (name: string) => unknown; [key: string]: unknown }
+  const value = typeof candidate.get === 'function'
+    ? candidate.get('x-request-id')
+    : candidate['x-request-id'] ?? candidate['X-Request-ID']
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
 // ==================== Request Interceptor ====================
 
 // Get user's timezone
@@ -95,6 +104,7 @@ apiClient.interceptors.response.use(
           message: apiResponse.message || 'Unknown error',
           reason: resp.reason,
           metadata: resp.metadata,
+          request_id: responseRequestId(response.headers),
         })
       }
     }
@@ -251,6 +261,7 @@ apiClient.interceptors.response.use(
         error: apiData.error,
         message: apiData.message || apiData.detail || error.message,
         metadata: apiData.metadata,
+        request_id: responseRequestId(error.response.headers),
       })
     }
 

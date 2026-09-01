@@ -53644,34 +53644,38 @@ func (m *UserAttributeValueMutation) ResetEdge(name string) error {
 // UserPlatformQuotaMutation represents an operation that mutates the UserPlatformQuota nodes in the graph.
 type UserPlatformQuotaMutation struct {
 	config
-	op                   Op
-	typ                  string
-	id                   *int64
-	created_at           *time.Time
-	updated_at           *time.Time
-	deleted_at           *time.Time
-	platform             *string
-	daily_limit_usd      *float64
-	adddaily_limit_usd   *float64
-	weekly_limit_usd     *float64
-	addweekly_limit_usd  *float64
-	monthly_limit_usd    *float64
-	addmonthly_limit_usd *float64
-	daily_usage_usd      *float64
-	adddaily_usage_usd   *float64
-	weekly_usage_usd     *float64
-	addweekly_usage_usd  *float64
-	monthly_usage_usd    *float64
-	addmonthly_usage_usd *float64
-	daily_window_start   *time.Time
-	weekly_window_start  *time.Time
-	monthly_window_start *time.Time
-	clearedFields        map[string]struct{}
-	user                 *int64
-	cleareduser          bool
-	done                 bool
-	oldValue             func(context.Context) (*UserPlatformQuota, error)
-	predicates           []predicate.UserPlatformQuota
+	op                            Op
+	typ                           string
+	id                            *int64
+	created_at                    *time.Time
+	updated_at                    *time.Time
+	deleted_at                    *time.Time
+	platform                      *string
+	daily_limit_usd               *float64
+	adddaily_limit_usd            *float64
+	weekly_limit_usd              *float64
+	addweekly_limit_usd           *float64
+	monthly_limit_usd             *float64
+	addmonthly_limit_usd          *float64
+	daily_usage_usd               *float64
+	adddaily_usage_usd            *float64
+	weekly_usage_usd              *float64
+	addweekly_usage_usd           *float64
+	monthly_usage_usd             *float64
+	addmonthly_usage_usd          *float64
+	weekly_quota_generation       *int64
+	addweekly_quota_generation    *int64
+	weekly_reserved_generation    *int64
+	addweekly_reserved_generation *int64
+	daily_window_start            *time.Time
+	weekly_window_start           *time.Time
+	monthly_window_start          *time.Time
+	clearedFields                 map[string]struct{}
+	user                          *int64
+	cleareduser                   bool
+	done                          bool
+	oldValue                      func(context.Context) (*UserPlatformQuota, error)
+	predicates                    []predicate.UserPlatformQuota
 }
 
 var _ ent.Mutation = (*UserPlatformQuotaMutation)(nil)
@@ -54343,6 +54347,118 @@ func (m *UserPlatformQuotaMutation) ResetMonthlyUsageUsd() {
 	m.addmonthly_usage_usd = nil
 }
 
+// SetWeeklyQuotaGeneration sets the "weekly_quota_generation" field.
+func (m *UserPlatformQuotaMutation) SetWeeklyQuotaGeneration(i int64) {
+	m.weekly_quota_generation = &i
+	m.addweekly_quota_generation = nil
+}
+
+// WeeklyQuotaGeneration returns the value of the "weekly_quota_generation" field in the mutation.
+func (m *UserPlatformQuotaMutation) WeeklyQuotaGeneration() (r int64, exists bool) {
+	v := m.weekly_quota_generation
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldWeeklyQuotaGeneration returns the old "weekly_quota_generation" field's value of the UserPlatformQuota entity.
+// If the UserPlatformQuota object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserPlatformQuotaMutation) OldWeeklyQuotaGeneration(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldWeeklyQuotaGeneration is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldWeeklyQuotaGeneration requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldWeeklyQuotaGeneration: %w", err)
+	}
+	return oldValue.WeeklyQuotaGeneration, nil
+}
+
+// AddWeeklyQuotaGeneration adds i to the "weekly_quota_generation" field.
+func (m *UserPlatformQuotaMutation) AddWeeklyQuotaGeneration(i int64) {
+	if m.addweekly_quota_generation != nil {
+		*m.addweekly_quota_generation += i
+	} else {
+		m.addweekly_quota_generation = &i
+	}
+}
+
+// AddedWeeklyQuotaGeneration returns the value that was added to the "weekly_quota_generation" field in this mutation.
+func (m *UserPlatformQuotaMutation) AddedWeeklyQuotaGeneration() (r int64, exists bool) {
+	v := m.addweekly_quota_generation
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetWeeklyQuotaGeneration resets all changes to the "weekly_quota_generation" field.
+func (m *UserPlatformQuotaMutation) ResetWeeklyQuotaGeneration() {
+	m.weekly_quota_generation = nil
+	m.addweekly_quota_generation = nil
+}
+
+// SetWeeklyReservedGeneration sets the "weekly_reserved_generation" field.
+func (m *UserPlatformQuotaMutation) SetWeeklyReservedGeneration(i int64) {
+	m.weekly_reserved_generation = &i
+	m.addweekly_reserved_generation = nil
+}
+
+// WeeklyReservedGeneration returns the value of the "weekly_reserved_generation" field in the mutation.
+func (m *UserPlatformQuotaMutation) WeeklyReservedGeneration() (r int64, exists bool) {
+	v := m.weekly_reserved_generation
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldWeeklyReservedGeneration returns the old "weekly_reserved_generation" field's value of the UserPlatformQuota entity.
+// If the UserPlatformQuota object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserPlatformQuotaMutation) OldWeeklyReservedGeneration(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldWeeklyReservedGeneration is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldWeeklyReservedGeneration requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldWeeklyReservedGeneration: %w", err)
+	}
+	return oldValue.WeeklyReservedGeneration, nil
+}
+
+// AddWeeklyReservedGeneration adds i to the "weekly_reserved_generation" field.
+func (m *UserPlatformQuotaMutation) AddWeeklyReservedGeneration(i int64) {
+	if m.addweekly_reserved_generation != nil {
+		*m.addweekly_reserved_generation += i
+	} else {
+		m.addweekly_reserved_generation = &i
+	}
+}
+
+// AddedWeeklyReservedGeneration returns the value that was added to the "weekly_reserved_generation" field in this mutation.
+func (m *UserPlatformQuotaMutation) AddedWeeklyReservedGeneration() (r int64, exists bool) {
+	v := m.addweekly_reserved_generation
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetWeeklyReservedGeneration resets all changes to the "weekly_reserved_generation" field.
+func (m *UserPlatformQuotaMutation) ResetWeeklyReservedGeneration() {
+	m.weekly_reserved_generation = nil
+	m.addweekly_reserved_generation = nil
+}
+
 // SetDailyWindowStart sets the "daily_window_start" field.
 func (m *UserPlatformQuotaMutation) SetDailyWindowStart(t time.Time) {
 	m.daily_window_start = &t
@@ -54551,7 +54667,7 @@ func (m *UserPlatformQuotaMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserPlatformQuotaMutation) Fields() []string {
-	fields := make([]string, 0, 14)
+	fields := make([]string, 0, 16)
 	if m.created_at != nil {
 		fields = append(fields, userplatformquota.FieldCreatedAt)
 	}
@@ -54584,6 +54700,12 @@ func (m *UserPlatformQuotaMutation) Fields() []string {
 	}
 	if m.monthly_usage_usd != nil {
 		fields = append(fields, userplatformquota.FieldMonthlyUsageUsd)
+	}
+	if m.weekly_quota_generation != nil {
+		fields = append(fields, userplatformquota.FieldWeeklyQuotaGeneration)
+	}
+	if m.weekly_reserved_generation != nil {
+		fields = append(fields, userplatformquota.FieldWeeklyReservedGeneration)
 	}
 	if m.daily_window_start != nil {
 		fields = append(fields, userplatformquota.FieldDailyWindowStart)
@@ -54624,6 +54746,10 @@ func (m *UserPlatformQuotaMutation) Field(name string) (ent.Value, bool) {
 		return m.WeeklyUsageUsd()
 	case userplatformquota.FieldMonthlyUsageUsd:
 		return m.MonthlyUsageUsd()
+	case userplatformquota.FieldWeeklyQuotaGeneration:
+		return m.WeeklyQuotaGeneration()
+	case userplatformquota.FieldWeeklyReservedGeneration:
+		return m.WeeklyReservedGeneration()
 	case userplatformquota.FieldDailyWindowStart:
 		return m.DailyWindowStart()
 	case userplatformquota.FieldWeeklyWindowStart:
@@ -54661,6 +54787,10 @@ func (m *UserPlatformQuotaMutation) OldField(ctx context.Context, name string) (
 		return m.OldWeeklyUsageUsd(ctx)
 	case userplatformquota.FieldMonthlyUsageUsd:
 		return m.OldMonthlyUsageUsd(ctx)
+	case userplatformquota.FieldWeeklyQuotaGeneration:
+		return m.OldWeeklyQuotaGeneration(ctx)
+	case userplatformquota.FieldWeeklyReservedGeneration:
+		return m.OldWeeklyReservedGeneration(ctx)
 	case userplatformquota.FieldDailyWindowStart:
 		return m.OldDailyWindowStart(ctx)
 	case userplatformquota.FieldWeeklyWindowStart:
@@ -54753,6 +54883,20 @@ func (m *UserPlatformQuotaMutation) SetField(name string, value ent.Value) error
 		}
 		m.SetMonthlyUsageUsd(v)
 		return nil
+	case userplatformquota.FieldWeeklyQuotaGeneration:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetWeeklyQuotaGeneration(v)
+		return nil
+	case userplatformquota.FieldWeeklyReservedGeneration:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetWeeklyReservedGeneration(v)
+		return nil
 	case userplatformquota.FieldDailyWindowStart:
 		v, ok := value.(time.Time)
 		if !ok {
@@ -54800,6 +54944,12 @@ func (m *UserPlatformQuotaMutation) AddedFields() []string {
 	if m.addmonthly_usage_usd != nil {
 		fields = append(fields, userplatformquota.FieldMonthlyUsageUsd)
 	}
+	if m.addweekly_quota_generation != nil {
+		fields = append(fields, userplatformquota.FieldWeeklyQuotaGeneration)
+	}
+	if m.addweekly_reserved_generation != nil {
+		fields = append(fields, userplatformquota.FieldWeeklyReservedGeneration)
+	}
 	return fields
 }
 
@@ -54820,6 +54970,10 @@ func (m *UserPlatformQuotaMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedWeeklyUsageUsd()
 	case userplatformquota.FieldMonthlyUsageUsd:
 		return m.AddedMonthlyUsageUsd()
+	case userplatformquota.FieldWeeklyQuotaGeneration:
+		return m.AddedWeeklyQuotaGeneration()
+	case userplatformquota.FieldWeeklyReservedGeneration:
+		return m.AddedWeeklyReservedGeneration()
 	}
 	return nil, false
 }
@@ -54870,6 +55024,20 @@ func (m *UserPlatformQuotaMutation) AddField(name string, value ent.Value) error
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddMonthlyUsageUsd(v)
+		return nil
+	case userplatformquota.FieldWeeklyQuotaGeneration:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddWeeklyQuotaGeneration(v)
+		return nil
+	case userplatformquota.FieldWeeklyReservedGeneration:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddWeeklyReservedGeneration(v)
 		return nil
 	}
 	return fmt.Errorf("unknown UserPlatformQuota numeric field %s", name)
@@ -54975,6 +55143,12 @@ func (m *UserPlatformQuotaMutation) ResetField(name string) error {
 		return nil
 	case userplatformquota.FieldMonthlyUsageUsd:
 		m.ResetMonthlyUsageUsd()
+		return nil
+	case userplatformquota.FieldWeeklyQuotaGeneration:
+		m.ResetWeeklyQuotaGeneration()
+		return nil
+	case userplatformquota.FieldWeeklyReservedGeneration:
+		m.ResetWeeklyReservedGeneration()
 		return nil
 	case userplatformquota.FieldDailyWindowStart:
 		m.ResetDailyWindowStart()

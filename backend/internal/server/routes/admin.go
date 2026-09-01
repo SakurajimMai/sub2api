@@ -208,12 +208,14 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		ops.POST("/alert-silences", h.Admin.Ops.CreateAlertSilence)
 
 		// OpenAI 官方七天窗口 -> 分组用户周额度联动。
+		ops.GET("/openai-weekly-quota-reset-accounts", h.Admin.OpenAIWeeklyQuotaReset.ListSourceAccounts)
 		ops.GET("/openai-weekly-quota-reset-rules", h.Admin.OpenAIWeeklyQuotaReset.ListRules)
 		ops.POST("/openai-weekly-quota-reset-rules", h.Admin.OpenAIWeeklyQuotaReset.CreateRule)
 		ops.PUT("/openai-weekly-quota-reset-rules/:id", h.Admin.OpenAIWeeklyQuotaReset.UpdateRule)
 		ops.DELETE("/openai-weekly-quota-reset-rules/:id", h.Admin.OpenAIWeeklyQuotaReset.DeleteRule)
 		ops.POST("/openai-weekly-quota-reset-rules/:id/check", h.Admin.OpenAIWeeklyQuotaReset.CheckRule)
 		ops.GET("/openai-weekly-quota-reset-executions", h.Admin.OpenAIWeeklyQuotaReset.ListExecutions)
+		ops.GET("/openai-weekly-quota-reset-events", h.Admin.OpenAIWeeklyQuotaReset.ListResetEvents)
 
 		// Email notification config (DB-backed)
 		ops.GET("/email-notification/config", h.Admin.Ops.GetEmailNotificationConfig)

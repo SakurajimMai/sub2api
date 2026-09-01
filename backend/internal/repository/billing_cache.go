@@ -423,17 +423,21 @@ func parseUserPlatformQuotaHash(m map[string]string) *service.UserPlatformQuotaC
 		return n
 	}
 	return &service.UserPlatformQuotaCacheEntry{
-		DailyUsageUSD:      parseFloat(m["daily_usage"]),
-		WeeklyUsageUSD:     parseFloat(m["weekly_usage"]),
-		MonthlyUsageUSD:    parseFloat(m["monthly_usage"]),
-		Version:            parseInt64(m["version"]),
-		SchemaVersion:      parseInt64(m["schema_version"]),
-		DailyLimitUSD:      parseFloatPtr(m["daily_limit"]),
-		WeeklyLimitUSD:     parseFloatPtr(m["weekly_limit"]),
-		MonthlyLimitUSD:    parseFloatPtr(m["monthly_limit"]),
-		DailyWindowStart:   parseTimePtr(m["daily_window_start"]),
-		WeeklyWindowStart:  parseTimePtr(m["weekly_window_start"]),
-		MonthlyWindowStart: parseTimePtr(m["monthly_window_start"]),
+		DailyUsageUSD:           parseFloat(m["daily_usage"]),
+		WeeklyUsageUSD:          parseFloat(m["weekly_usage"]),
+		MonthlyUsageUSD:         parseFloat(m["monthly_usage"]),
+		Version:                 parseInt64(m["version"]),
+		SchemaVersion:           parseInt64(m["schema_version"]),
+		WeeklyGeneration:        parseInt64(m["weekly_generation"]),
+		WeeklyPendingGeneration: parseInt64(m["weekly_pending_generation"]),
+		WeeklyPendingUsageUSD:   parseFloat(m["weekly_pending_usage"]),
+		WeeklyPendingEventID:    m["weekly_pending_event_id"],
+		DailyLimitUSD:           parseFloatPtr(m["daily_limit"]),
+		WeeklyLimitUSD:          parseFloatPtr(m["weekly_limit"]),
+		MonthlyLimitUSD:         parseFloatPtr(m["monthly_limit"]),
+		DailyWindowStart:        parseTimePtr(m["daily_window_start"]),
+		WeeklyWindowStart:       parseTimePtr(m["weekly_window_start"]),
+		MonthlyWindowStart:      parseTimePtr(m["monthly_window_start"]),
 	}
 }
 
@@ -451,13 +455,88 @@ func (c *billingCache) GetUserPlatformQuotaCache(ctx context.Context, userID int
 	return entry, true, nil
 }
 
+const setUserPlatformQuotaCacheScript = `
+local incoming_generation = tonumber(ARGV[6])
+local fence_generation = tonumber(redis.call("HGET", KEYS[2], "generation") or 0)
+local weekly_usage = ARGV[2]
+local weekly_generation = incoming_generation
+local weekly_window_start = ARGV[14]
+local pending_generation = tonumber(ARGV[7])
+local pending_usage = ARGV[8]
+local pending_event_id = ARGV[9]
+local existing_generation = tonumber(redis.call("HGET", KEYS[1], "weekly_generation") or 0)
+local existing_pending_generation = tonumber(redis.call("HGET", KEYS[1], "weekly_pending_generation") or 0)
+local existing_window_start = tonumber(redis.call("HGET", KEYS[1], "weekly_window_start") or 0)
+local incoming_window_start = tonumber(ARGV[14]) or 0
+
+if existing_generation > weekly_generation or
+   (existing_generation == weekly_generation and existing_window_start > incoming_window_start) then
+    weekly_generation = existing_generation
+    weekly_usage = redis.call("HGET", KEYS[1], "weekly_usage") or weekly_usage
+    weekly_window_start = redis.call("HGET", KEYS[1], "weekly_window_start") or weekly_window_start
+elseif existing_generation == weekly_generation and existing_window_start == incoming_window_start then
+    local existing_usage = tonumber(redis.call("HGET", KEYS[1], "weekly_usage") or 0)
+    if existing_usage > tonumber(weekly_usage) then
+        weekly_usage = existing_usage
+    end
+end
+if existing_pending_generation > pending_generation then
+    pending_generation = existing_pending_generation
+    pending_usage = redis.call("HGET", KEYS[1], "weekly_pending_usage") or "0"
+    pending_event_id = redis.call("HGET", KEYS[1], "weekly_pending_event_id") or ""
+elseif existing_pending_generation == pending_generation and pending_generation > 0 then
+    local existing_pending_usage = tonumber(redis.call("HGET", KEYS[1], "weekly_pending_usage") or 0)
+    if existing_pending_usage > tonumber(pending_usage) then
+        pending_usage = existing_pending_usage
+    end
+    local existing_pending_event_id = redis.call("HGET", KEYS[1], "weekly_pending_event_id") or ""
+    if existing_pending_event_id ~= "" then
+        pending_event_id = existing_pending_event_id
+    end
+end
+if fence_generation > weekly_generation then
+    if pending_generation == fence_generation then
+        weekly_generation = existing_generation
+        weekly_usage = redis.call("HGET", KEYS[1], "weekly_usage") or weekly_usage
+        weekly_window_start = redis.call("HGET", KEYS[1], "weekly_window_start") or weekly_window_start
+    else
+        weekly_generation = fence_generation
+        weekly_usage = "0"
+        pending_generation = 0
+        pending_usage = "0"
+        pending_event_id = ""
+    end
+end
+
+if pending_generation > fence_generation then
+    redis.call("HSET", KEYS[2], "generation", pending_generation, "event_id", pending_event_id)
+    redis.call("EXPIRE", KEYS[2], ARGV[16])
+end
+
+redis.call("HSET", KEYS[1],
+    "daily_usage", ARGV[1],
+    "weekly_usage", weekly_usage,
+    "monthly_usage", ARGV[3],
+    "version", ARGV[4],
+    "schema_version", ARGV[5],
+    "weekly_generation", weekly_generation,
+    "weekly_pending_generation", pending_generation,
+    "weekly_pending_usage", pending_usage,
+    "weekly_pending_event_id", pending_event_id,
+    "daily_limit", ARGV[10],
+    "weekly_limit", ARGV[11],
+    "monthly_limit", ARGV[12],
+    "daily_window_start", ARGV[13],
+    "weekly_window_start", weekly_window_start,
+    "monthly_window_start", ARGV[15])
+redis.call("EXPIRE", KEYS[1], ARGV[16])
+return weekly_generation
+`
+
 func (c *billingCache) SetUserPlatformQuotaCache(ctx context.Context, userID int64, platform string, entry *service.UserPlatformQuotaCacheEntry, ttl time.Duration) error {
 	if entry == nil {
 		return nil
 	}
-	key := userPlatformQuotaCacheKey(userID, platform)
-	pipe := c.rdb.TxPipeline()
-
 	// 浮点可空字段：nil → 空字符串（读取时 parseFloatPtr 返回 nil，表示无限额）
 	fmtFloatPtr := func(p *float64) string {
 		if p == nil {
@@ -473,21 +552,15 @@ func (c *billingCache) SetUserPlatformQuotaCache(ctx context.Context, userID int
 		return strconv.FormatInt(p.Unix(), 10)
 	}
 
-	pipe.HSet(ctx, key,
-		"daily_usage", entry.DailyUsageUSD,
-		"weekly_usage", entry.WeeklyUsageUSD,
-		"monthly_usage", entry.MonthlyUsageUSD,
-		"version", entry.Version,
-		"schema_version", entry.SchemaVersion,
-		"daily_limit", fmtFloatPtr(entry.DailyLimitUSD),
-		"weekly_limit", fmtFloatPtr(entry.WeeklyLimitUSD),
-		"monthly_limit", fmtFloatPtr(entry.MonthlyLimitUSD),
-		"daily_window_start", fmtTimePtr(entry.DailyWindowStart),
-		"weekly_window_start", fmtTimePtr(entry.WeeklyWindowStart),
-		"monthly_window_start", fmtTimePtr(entry.MonthlyWindowStart),
-	)
-	pipe.Expire(ctx, key, ttl)
-	_, err := pipe.Exec(ctx)
+	_, err := c.rdb.Eval(ctx, setUserPlatformQuotaCacheScript,
+		[]string{userPlatformQuotaCacheKey(userID, platform), userPlatformQuotaGenerationFenceKey(userID, platform)},
+		entry.DailyUsageUSD, entry.WeeklyUsageUSD, entry.MonthlyUsageUSD,
+		entry.Version, entry.SchemaVersion, entry.WeeklyGeneration,
+		entry.WeeklyPendingGeneration, entry.WeeklyPendingUsageUSD, entry.WeeklyPendingEventID,
+		fmtFloatPtr(entry.DailyLimitUSD), fmtFloatPtr(entry.WeeklyLimitUSD), fmtFloatPtr(entry.MonthlyLimitUSD),
+		fmtTimePtr(entry.DailyWindowStart), fmtTimePtr(entry.WeeklyWindowStart), fmtTimePtr(entry.MonthlyWindowStart),
+		max(1, int(ttl.Seconds())),
+	).Result()
 	return err
 }
 
@@ -557,6 +630,133 @@ return 1
 // 使用与 userPlatformQuotaCacheKey 相同的前缀 "billing:"。
 func userPlatformQuotaDirtySetKey() string { return "billing:" + "upq:dirty" }
 
+func userPlatformQuotaGenerationFenceKey(userID int64, platform string) string {
+	return "billing:upq:generation:" + userPlatformQuotaDirtyMember(userID, platform)
+}
+
+const prepareUserPlatformWeeklyQuotaResetScript = `
+local fence_generation = tonumber(redis.call("HGET", KEYS[2], "generation") or 0)
+local requested_generation = tonumber(ARGV[2])
+if requested_generation > fence_generation then
+    redis.call("HSET", KEYS[2], "generation", ARGV[2], "event_id", ARGV[1])
+end
+redis.call("EXPIRE", KEYS[2], ARGV[3])
+if redis.call("EXISTS", KEYS[1]) == 0 then
+    return 0
+end
+local schema = tonumber(redis.call("HGET", KEYS[1], "schema_version") or 0)
+if schema ~= tonumber(ARGV[4]) then
+    redis.call("DEL", KEYS[1])
+    return 0
+end
+local current_generation = tonumber(redis.call("HGET", KEYS[1], "weekly_generation") or 0)
+local pending_generation = tonumber(redis.call("HGET", KEYS[1], "weekly_pending_generation") or 0)
+if current_generation >= requested_generation or pending_generation >= requested_generation then
+    redis.call("EXPIRE", KEYS[1], ARGV[3])
+    return 1
+end
+redis.call("HSET", KEYS[1],
+    "weekly_pending_generation", ARGV[2],
+    "weekly_pending_usage", "0",
+    "weekly_pending_event_id", ARGV[1])
+redis.call("EXPIRE", KEYS[1], ARGV[3])
+return 1
+`
+
+const incrementUserPlatformQuotaUsageWithGenerationScript = `
+if redis.call("EXISTS", KEYS[1]) == 0 then
+    return -1
+end
+local schema = tonumber(redis.call("HGET", KEYS[1], "schema_version") or 0)
+if schema ~= tonumber(ARGV[3]) then
+    return -1
+end
+redis.call("HINCRBYFLOAT", KEYS[1], "daily_usage", ARGV[1])
+redis.call("HINCRBYFLOAT", KEYS[1], "monthly_usage", ARGV[1])
+local current_generation = tonumber(redis.call("HGET", KEYS[1], "weekly_generation") or 0)
+local pending_generation = tonumber(redis.call("HGET", KEYS[1], "weekly_pending_generation") or 0)
+local fence_generation = tonumber(redis.call("HGET", KEYS[3], "generation") or 0)
+local applied_generation = current_generation
+local effective_generation = current_generation
+if pending_generation > effective_generation then
+    effective_generation = pending_generation
+end
+if fence_generation > effective_generation then
+    effective_generation = fence_generation
+end
+if effective_generation > current_generation then
+    if pending_generation < effective_generation then
+        redis.call("HSET", KEYS[1],
+            "weekly_pending_generation", effective_generation,
+            "weekly_pending_usage", "0",
+            "weekly_pending_event_id", redis.call("HGET", KEYS[3], "event_id") or "")
+    end
+    redis.call("HINCRBYFLOAT", KEYS[1], "weekly_pending_usage", ARGV[1])
+    applied_generation = effective_generation
+else
+    redis.call("HINCRBYFLOAT", KEYS[1], "weekly_usage", ARGV[1])
+end
+redis.call("HINCRBY", KEYS[1], "version", 1)
+redis.call("EXPIRE", KEYS[1], ARGV[2])
+if ARGV[4] ~= "" then
+    redis.call("SADD", KEYS[2], ARGV[4])
+    redis.call("EXPIRE", KEYS[2], ARGV[5])
+end
+return applied_generation
+`
+
+const finalizeUserPlatformWeeklyQuotaResetScript = `
+local requested_generation = tonumber(ARGV[2])
+local fence_generation = tonumber(redis.call("HGET", KEYS[3], "generation") or 0)
+if requested_generation > fence_generation then
+    redis.call("HSET", KEYS[3], "generation", ARGV[2], "event_id", ARGV[1])
+end
+redis.call("EXPIRE", KEYS[3], ARGV[5])
+if redis.call("EXISTS", KEYS[1]) == 0 then
+    return 0
+end
+local schema = tonumber(redis.call("HGET", KEYS[1], "schema_version") or 0)
+if schema ~= tonumber(ARGV[6]) then
+    redis.call("DEL", KEYS[1])
+    return 0
+end
+local current_generation = tonumber(redis.call("HGET", KEYS[1], "weekly_generation") or 0)
+if current_generation > requested_generation then
+    redis.call("EXPIRE", KEYS[1], ARGV[5])
+    return 1
+end
+local pending_generation = tonumber(redis.call("HGET", KEYS[1], "weekly_pending_generation") or 0)
+if fence_generation > requested_generation or pending_generation > requested_generation then
+    redis.call("EXPIRE", KEYS[1], ARGV[5])
+    return 1
+end
+local pending_usage = tonumber(redis.call("HGET", KEYS[1], "weekly_usage") or 0)
+if pending_generation == requested_generation then
+    local staged_usage = tonumber(redis.call("HGET", KEYS[1], "weekly_pending_usage") or 0)
+    if current_generation < requested_generation then
+        pending_usage = staged_usage
+    elseif staged_usage > pending_usage then
+        pending_usage = staged_usage
+    end
+elseif current_generation < requested_generation then
+    pending_usage = 0
+end
+redis.call("HSET", KEYS[1],
+    "weekly_usage", pending_usage,
+    "weekly_generation", ARGV[2],
+    "weekly_window_start", ARGV[3],
+    "weekly_pending_generation", "0",
+    "weekly_pending_usage", "0",
+    "weekly_pending_event_id", "")
+redis.call("HINCRBY", KEYS[1], "version", 1)
+redis.call("EXPIRE", KEYS[1], ARGV[5])
+if ARGV[4] ~= "" then
+    redis.call("SADD", KEYS[2], ARGV[4])
+    redis.call("EXPIRE", KEYS[2], ARGV[7])
+end
+return 1
+`
+
 // userPlatformQuotaDirtyTTLSeconds 脏集兜底 TTL（秒）：初始 SADD（Lua）与 Readd 共用，
 // 确保 flusher 长期停摆时脏集最终过期；正常运行因持续 SADD 不断续期。
 const userPlatformQuotaDirtyTTLSeconds = 86400
@@ -583,6 +783,49 @@ func (c *billingCache) IncrUserPlatformQuotaUsageCache(ctx context.Context, user
 		return err
 	}
 	return nil
+}
+
+func (c *billingCache) IncrUserPlatformQuotaUsageCacheWithGeneration(ctx context.Context, userID int64, platform string, cost float64, ttl time.Duration, markDirty bool) (int64, error) {
+	member := ""
+	if markDirty {
+		member = userPlatformQuotaDirtyMember(userID, platform)
+	}
+	result, err := c.rdb.Eval(ctx, incrementUserPlatformQuotaUsageWithGenerationScript,
+		[]string{userPlatformQuotaCacheKey(userID, platform), userPlatformQuotaDirtySetKey(), userPlatformQuotaGenerationFenceKey(userID, platform)},
+		strconv.FormatFloat(cost, 'f', -1, 64), max(1, int(ttl.Seconds())), service.UserPlatformQuotaCacheSchemaV2,
+		member, userPlatformQuotaDirtyTTLSeconds,
+	).Int64()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return 0, err
+	}
+	return result, nil
+}
+
+func (c *billingCache) PrepareUserPlatformWeeklyQuotaReset(ctx context.Context, userID int64, platform, eventID string, targetGeneration int64, ttl time.Duration) (bool, error) {
+	result, err := c.rdb.Eval(ctx, prepareUserPlatformWeeklyQuotaResetScript,
+		[]string{userPlatformQuotaCacheKey(userID, platform), userPlatformQuotaGenerationFenceKey(userID, platform)},
+		eventID, targetGeneration, max(1, int(ttl.Seconds())), service.UserPlatformQuotaCacheSchemaV2,
+	).Int64()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return false, err
+	}
+	return result == 1, nil
+}
+
+func (c *billingCache) FinalizeUserPlatformWeeklyQuotaReset(ctx context.Context, userID int64, platform, eventID string, targetGeneration int64, newStart time.Time, ttl time.Duration, markDirty bool) (bool, error) {
+	member := ""
+	if markDirty {
+		member = userPlatformQuotaDirtyMember(userID, platform)
+	}
+	result, err := c.rdb.Eval(ctx, finalizeUserPlatformWeeklyQuotaResetScript,
+		[]string{userPlatformQuotaCacheKey(userID, platform), userPlatformQuotaDirtySetKey(), userPlatformQuotaGenerationFenceKey(userID, platform)},
+		eventID, targetGeneration, newStart.Unix(), member, max(1, int(ttl.Seconds())),
+		service.UserPlatformQuotaCacheSchemaV2, userPlatformQuotaDirtyTTLSeconds,
+	).Int64()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return false, err
+	}
+	return result == 1, nil
 }
 
 func (c *billingCache) ResetUserPlatformWeeklyQuotaCache(ctx context.Context, userID int64, platform string, newStart time.Time, ttl time.Duration, markDirty bool) (bool, error) {

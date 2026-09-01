@@ -732,6 +732,7 @@ export interface OpenAIWeeklyQuotaResetRule {
   enabled: boolean
   source_account_id: number
   source_account_name?: string
+  source_identity?: OpenAIWeeklyQuotaResetAccount
   target_group_id: number
   target_group_name?: string
   last_observed_reset_at?: string | null
@@ -739,8 +740,41 @@ export interface OpenAIWeeklyQuotaResetRule {
   last_observed_fetched_at?: string | null
   last_run_at?: string | null
   last_error?: string
+  last_attempt_at?: string | null
+  last_query_success_at?: string | null
+  last_execution_success_at?: string | null
+  next_query_at?: string | null
+  query_status?: string
+  query_failure?: OpenAIWeeklyQuotaFailure | null
+  execution_status?: string
+  execution_failure?: OpenAIWeeklyQuotaFailure | null
+  last_snapshot_meter_key?: string
+  last_snapshot_source?: string
+  last_snapshot_observed_at?: string | null
+  last_snapshot_used_percent?: number | null
   created_at: string
   updated_at: string
+}
+
+export interface OpenAIWeeklyQuotaFailure {
+  stage: string
+  reason: string
+  message: string
+  request_id?: string
+  at?: string
+}
+
+export interface OpenAIWeeklyQuotaResetAccount {
+  local_account_id: number
+  local_account_name: string
+  chatgpt_account_id?: string
+  chatgpt_user_id?: string
+  email?: string
+  plan_type?: string
+  identity_source: 'oauth' | 'pat' | 'agent_identity' | string
+  last_verified_at?: string | null
+  supported: boolean
+  unsupported_reason?: string
 }
 
 export type OpenAIWeeklyQuotaResetRuleInput = Pick<
@@ -754,6 +788,9 @@ export interface OpenAIWeeklyQuotaResetExecution {
   rule_name?: string
   source_account_id: number
   target_group_id: number
+  reset_event_id?: string
+  event_source?: string
+  evidence_kind?: string
   official_reset_at: string
   official_window_start: string
   official_window_seconds: number
@@ -762,16 +799,38 @@ export interface OpenAIWeeklyQuotaResetExecution {
   reset_users: number
   skipped_users: number
   error_message?: string
+  stage?: string
+  error_reason?: string
+  error_request_id?: string
   detected_at: string
   completed_at?: string | null
   created_at: string
   updated_at: string
 }
 
+export interface OpenAIWeeklyQuotaResetEvent {
+  id: number
+  source_account_id: number
+  source_account_name?: string
+  event_source: string
+  evidence_kind: string
+  status: 'candidate' | 'confirmed' | 'rejected' | string
+  reason?: string
+  official_reset_at?: string | null
+  pre_used_percent?: number | null
+  post_used_percent?: number | null
+  observed_at: string
+  confirmed_at?: string | null
+}
+
 export interface OpenAIWeeklyQuotaResetCheckResult {
-  outcome: 'baseline' | 'unchanged' | 'stale' | 'triggered'
+  outcome: 'baseline' | 'unchanged' | 'stale' | 'triggered' | 'identity_changed'
   execution_id?: number
   matched_users?: number
+  users_with_quota?: number
+  no_quota_users?: number
+  duplicate_users?: number
+  zero_reason?: string
   reset_user_ids?: number[]
   skipped_users?: number
 }
@@ -1248,6 +1307,11 @@ export async function listOpenAIWeeklyQuotaResetRules(): Promise<OpenAIWeeklyQuo
   return data
 }
 
+export async function listOpenAIWeeklyQuotaResetAccounts(): Promise<OpenAIWeeklyQuotaResetAccount[]> {
+  const { data } = await apiClient.get<OpenAIWeeklyQuotaResetAccount[]>('/admin/ops/openai-weekly-quota-reset-accounts')
+  return data
+}
+
 export async function createOpenAIWeeklyQuotaResetRule(input: OpenAIWeeklyQuotaResetRuleInput): Promise<OpenAIWeeklyQuotaResetRule> {
   const { data } = await apiClient.post<OpenAIWeeklyQuotaResetRule>('/admin/ops/openai-weekly-quota-reset-rules', input)
   return data
@@ -1269,6 +1333,11 @@ export async function checkOpenAIWeeklyQuotaResetRule(id: number): Promise<OpenA
 
 export async function listOpenAIWeeklyQuotaResetExecutions(params: { rule_id?: number; limit?: number } = {}): Promise<OpenAIWeeklyQuotaResetExecution[]> {
   const { data } = await apiClient.get<OpenAIWeeklyQuotaResetExecution[]>('/admin/ops/openai-weekly-quota-reset-executions', { params })
+  return data
+}
+
+export async function listOpenAIWeeklyQuotaResetEvents(params: { limit?: number } = {}): Promise<OpenAIWeeklyQuotaResetEvent[]> {
+  const { data } = await apiClient.get<OpenAIWeeklyQuotaResetEvent[]>('/admin/ops/openai-weekly-quota-reset-events', { params })
   return data
 }
 
@@ -1419,11 +1488,13 @@ export const opsAPI = {
   updateAlertRule,
   deleteAlertRule,
   listOpenAIWeeklyQuotaResetRules,
+  listOpenAIWeeklyQuotaResetAccounts,
   createOpenAIWeeklyQuotaResetRule,
   updateOpenAIWeeklyQuotaResetRule,
   deleteOpenAIWeeklyQuotaResetRule,
   checkOpenAIWeeklyQuotaResetRule,
   listOpenAIWeeklyQuotaResetExecutions,
+  listOpenAIWeeklyQuotaResetEvents,
   listAlertEvents,
   getAlertEvent,
   updateAlertEventStatus,

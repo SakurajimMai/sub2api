@@ -37,6 +37,10 @@ const (
 	FieldWeeklyUsageUsd = "weekly_usage_usd"
 	// FieldMonthlyUsageUsd holds the string denoting the monthly_usage_usd field in the database.
 	FieldMonthlyUsageUsd = "monthly_usage_usd"
+	// FieldWeeklyQuotaGeneration holds the string denoting the weekly_quota_generation field in the database.
+	FieldWeeklyQuotaGeneration = "weekly_quota_generation"
+	// FieldWeeklyReservedGeneration holds the string denoting the weekly_reserved_generation field in the database.
+	FieldWeeklyReservedGeneration = "weekly_reserved_generation"
 	// FieldDailyWindowStart holds the string denoting the daily_window_start field in the database.
 	FieldDailyWindowStart = "daily_window_start"
 	// FieldWeeklyWindowStart holds the string denoting the weekly_window_start field in the database.
@@ -70,6 +74,8 @@ var Columns = []string{
 	FieldDailyUsageUsd,
 	FieldWeeklyUsageUsd,
 	FieldMonthlyUsageUsd,
+	FieldWeeklyQuotaGeneration,
+	FieldWeeklyReservedGeneration,
 	FieldDailyWindowStart,
 	FieldWeeklyWindowStart,
 	FieldMonthlyWindowStart,
@@ -107,6 +113,10 @@ var (
 	DefaultWeeklyUsageUsd float64
 	// DefaultMonthlyUsageUsd holds the default value on creation for the "monthly_usage_usd" field.
 	DefaultMonthlyUsageUsd float64
+	// DefaultWeeklyQuotaGeneration holds the default value on creation for the "weekly_quota_generation" field.
+	DefaultWeeklyQuotaGeneration int64
+	// DefaultWeeklyReservedGeneration holds the default value on creation for the "weekly_reserved_generation" field.
+	DefaultWeeklyReservedGeneration int64
 )
 
 // OrderOption defines the ordering options for the UserPlatformQuota queries.
@@ -170,6 +180,16 @@ func ByWeeklyUsageUsd(opts ...sql.OrderTermOption) OrderOption {
 // ByMonthlyUsageUsd orders the results by the monthly_usage_usd field.
 func ByMonthlyUsageUsd(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldMonthlyUsageUsd, opts...).ToFunc()
+}
+
+// ByWeeklyQuotaGeneration orders the results by the weekly_quota_generation field.
+func ByWeeklyQuotaGeneration(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldWeeklyQuotaGeneration, opts...).ToFunc()
+}
+
+// ByWeeklyReservedGeneration orders the results by the weekly_reserved_generation field.
+func ByWeeklyReservedGeneration(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldWeeklyReservedGeneration, opts...).ToFunc()
 }
 
 // ByDailyWindowStart orders the results by the daily_window_start field.

@@ -227,6 +227,48 @@ func (_u *UserPlatformQuotaUpdate) AddMonthlyUsageUsd(v float64) *UserPlatformQu
 	return _u
 }
 
+// SetWeeklyQuotaGeneration sets the "weekly_quota_generation" field.
+func (_u *UserPlatformQuotaUpdate) SetWeeklyQuotaGeneration(v int64) *UserPlatformQuotaUpdate {
+	_u.mutation.ResetWeeklyQuotaGeneration()
+	_u.mutation.SetWeeklyQuotaGeneration(v)
+	return _u
+}
+
+// SetNillableWeeklyQuotaGeneration sets the "weekly_quota_generation" field if the given value is not nil.
+func (_u *UserPlatformQuotaUpdate) SetNillableWeeklyQuotaGeneration(v *int64) *UserPlatformQuotaUpdate {
+	if v != nil {
+		_u.SetWeeklyQuotaGeneration(*v)
+	}
+	return _u
+}
+
+// AddWeeklyQuotaGeneration adds value to the "weekly_quota_generation" field.
+func (_u *UserPlatformQuotaUpdate) AddWeeklyQuotaGeneration(v int64) *UserPlatformQuotaUpdate {
+	_u.mutation.AddWeeklyQuotaGeneration(v)
+	return _u
+}
+
+// SetWeeklyReservedGeneration sets the "weekly_reserved_generation" field.
+func (_u *UserPlatformQuotaUpdate) SetWeeklyReservedGeneration(v int64) *UserPlatformQuotaUpdate {
+	_u.mutation.ResetWeeklyReservedGeneration()
+	_u.mutation.SetWeeklyReservedGeneration(v)
+	return _u
+}
+
+// SetNillableWeeklyReservedGeneration sets the "weekly_reserved_generation" field if the given value is not nil.
+func (_u *UserPlatformQuotaUpdate) SetNillableWeeklyReservedGeneration(v *int64) *UserPlatformQuotaUpdate {
+	if v != nil {
+		_u.SetWeeklyReservedGeneration(*v)
+	}
+	return _u
+}
+
+// AddWeeklyReservedGeneration adds value to the "weekly_reserved_generation" field.
+func (_u *UserPlatformQuotaUpdate) AddWeeklyReservedGeneration(v int64) *UserPlatformQuotaUpdate {
+	_u.mutation.AddWeeklyReservedGeneration(v)
+	return _u
+}
+
 // SetDailyWindowStart sets the "daily_window_start" field.
 func (_u *UserPlatformQuotaUpdate) SetDailyWindowStart(v time.Time) *UserPlatformQuotaUpdate {
 	_u.mutation.SetDailyWindowStart(v)
@@ -426,6 +468,18 @@ func (_u *UserPlatformQuotaUpdate) sqlSave(ctx context.Context) (_node int, err 
 	}
 	if value, ok := _u.mutation.AddedMonthlyUsageUsd(); ok {
 		_spec.AddField(userplatformquota.FieldMonthlyUsageUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.WeeklyQuotaGeneration(); ok {
+		_spec.SetField(userplatformquota.FieldWeeklyQuotaGeneration, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedWeeklyQuotaGeneration(); ok {
+		_spec.AddField(userplatformquota.FieldWeeklyQuotaGeneration, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.WeeklyReservedGeneration(); ok {
+		_spec.SetField(userplatformquota.FieldWeeklyReservedGeneration, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedWeeklyReservedGeneration(); ok {
+		_spec.AddField(userplatformquota.FieldWeeklyReservedGeneration, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.DailyWindowStart(); ok {
 		_spec.SetField(userplatformquota.FieldDailyWindowStart, field.TypeTime, value)
@@ -692,6 +746,48 @@ func (_u *UserPlatformQuotaUpdateOne) AddMonthlyUsageUsd(v float64) *UserPlatfor
 	return _u
 }
 
+// SetWeeklyQuotaGeneration sets the "weekly_quota_generation" field.
+func (_u *UserPlatformQuotaUpdateOne) SetWeeklyQuotaGeneration(v int64) *UserPlatformQuotaUpdateOne {
+	_u.mutation.ResetWeeklyQuotaGeneration()
+	_u.mutation.SetWeeklyQuotaGeneration(v)
+	return _u
+}
+
+// SetNillableWeeklyQuotaGeneration sets the "weekly_quota_generation" field if the given value is not nil.
+func (_u *UserPlatformQuotaUpdateOne) SetNillableWeeklyQuotaGeneration(v *int64) *UserPlatformQuotaUpdateOne {
+	if v != nil {
+		_u.SetWeeklyQuotaGeneration(*v)
+	}
+	return _u
+}
+
+// AddWeeklyQuotaGeneration adds value to the "weekly_quota_generation" field.
+func (_u *UserPlatformQuotaUpdateOne) AddWeeklyQuotaGeneration(v int64) *UserPlatformQuotaUpdateOne {
+	_u.mutation.AddWeeklyQuotaGeneration(v)
+	return _u
+}
+
+// SetWeeklyReservedGeneration sets the "weekly_reserved_generation" field.
+func (_u *UserPlatformQuotaUpdateOne) SetWeeklyReservedGeneration(v int64) *UserPlatformQuotaUpdateOne {
+	_u.mutation.ResetWeeklyReservedGeneration()
+	_u.mutation.SetWeeklyReservedGeneration(v)
+	return _u
+}
+
+// SetNillableWeeklyReservedGeneration sets the "weekly_reserved_generation" field if the given value is not nil.
+func (_u *UserPlatformQuotaUpdateOne) SetNillableWeeklyReservedGeneration(v *int64) *UserPlatformQuotaUpdateOne {
+	if v != nil {
+		_u.SetWeeklyReservedGeneration(*v)
+	}
+	return _u
+}
+
+// AddWeeklyReservedGeneration adds value to the "weekly_reserved_generation" field.
+func (_u *UserPlatformQuotaUpdateOne) AddWeeklyReservedGeneration(v int64) *UserPlatformQuotaUpdateOne {
+	_u.mutation.AddWeeklyReservedGeneration(v)
+	return _u
+}
+
 // SetDailyWindowStart sets the "daily_window_start" field.
 func (_u *UserPlatformQuotaUpdateOne) SetDailyWindowStart(v time.Time) *UserPlatformQuotaUpdateOne {
 	_u.mutation.SetDailyWindowStart(v)
@@ -921,6 +1017,18 @@ func (_u *UserPlatformQuotaUpdateOne) sqlSave(ctx context.Context) (_node *UserP
 	}
 	if value, ok := _u.mutation.AddedMonthlyUsageUsd(); ok {
 		_spec.AddField(userplatformquota.FieldMonthlyUsageUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.WeeklyQuotaGeneration(); ok {
+		_spec.SetField(userplatformquota.FieldWeeklyQuotaGeneration, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedWeeklyQuotaGeneration(); ok {
+		_spec.AddField(userplatformquota.FieldWeeklyQuotaGeneration, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.WeeklyReservedGeneration(); ok {
+		_spec.SetField(userplatformquota.FieldWeeklyReservedGeneration, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedWeeklyReservedGeneration(); ok {
+		_spec.AddField(userplatformquota.FieldWeeklyReservedGeneration, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.DailyWindowStart(); ok {
 		_spec.SetField(userplatformquota.FieldDailyWindowStart, field.TypeTime, value)

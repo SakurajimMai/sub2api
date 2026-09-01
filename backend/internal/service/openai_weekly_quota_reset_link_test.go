@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,67 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestSelectOpenAIWeeklyWindow_PreservesUnknownAndExplicitZeroUsage(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		body      string
+		wantKnown bool
+		wantValue float64
+	}{
+		{name: "missing is unknown", body: `{"plan_type":"pro","rate_limit":{"secondary_window":{"limit_window_seconds":604800,"reset_at":1800000}}}`},
+		{name: "explicit zero is known", body: `{"plan_type":"pro","rate_limit":{"secondary_window":{"used_percent":0,"limit_window_seconds":604800,"reset_at":1800000}}}`, wantKnown: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var usage OpenAIQuotaUsage
+			require.NoError(t, json.Unmarshal([]byte(tt.body), &usage))
+			window, ok := selectOpenAIWeeklyWindow(&usage)
+			require.True(t, ok)
+			if !tt.wantKnown {
+				require.Nil(t, window.UsedPercent)
+				return
+			}
+			require.NotNil(t, window.UsedPercent)
+			require.Equal(t, tt.wantValue, *window.UsedPercent)
+			require.Equal(t, "codex_weekly", window.MeterKey)
+			require.Equal(t, "wham_usage", window.Source)
+		})
+	}
+}
+
+func TestConfirmAuthorizedWeeklyResetEvidence(t *testing.T) {
+	resetAt := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC).Unix()
+	weekly := func(used float64, known bool) *OpenAIQuotaUsage {
+		return &OpenAIQuotaUsage{PlanType: "pro", AccountID: "acct", UserID: "user", RateLimit: &OpenAIRateLimit{
+			SecondaryWindow: &OpenAIRateLimitWindow{
+				UsedPercent: used, UsedPercentKnown: known,
+				LimitWindowSeconds: 7 * 24 * 60 * 60, ResetAt: resetAt,
+			},
+		}}
+	}
+
+	confirmed := evaluateAuthorizedWeeklyResetEvidence(weekly(75, true), weekly(0, true), 1)
+	require.True(t, confirmed.Confirmed)
+	require.Equal(t, "authorized_reset_weekly_usage_decreased", confirmed.EvidenceKind)
+
+	fiveHourOnlyBefore := weekly(75, true)
+	fiveHourOnlyAfter := weekly(75, true)
+	fiveHourOnlyBefore.RateLimit.PrimaryWindow = &OpenAIRateLimitWindow{UsedPercent: 100, UsedPercentKnown: true, LimitWindowSeconds: 5 * 60 * 60, ResetAt: resetAt}
+	fiveHourOnlyAfter.RateLimit.PrimaryWindow = &OpenAIRateLimitWindow{UsedPercent: 0, UsedPercentKnown: true, LimitWindowSeconds: 5 * 60 * 60, ResetAt: resetAt}
+	fiveHourOnly := evaluateAuthorizedWeeklyResetEvidence(fiveHourOnlyBefore, fiveHourOnlyAfter, 1)
+	require.False(t, fiveHourOnly.Confirmed)
+	require.Equal(t, "five_hour_only", fiveHourOnly.Reason)
+
+	unknown := evaluateAuthorizedWeeklyResetEvidence(weekly(0, false), weekly(0, false), 1)
+	require.False(t, unknown.Confirmed)
+	require.Equal(t, "weekly_usage_unknown", unknown.Reason)
+
+	staleAfter := weekly(0, true)
+	staleAfter.RateLimit.SecondaryWindow.ResetAt = resetAt - int64(24*time.Hour/time.Second)
+	stale := evaluateAuthorizedWeeklyResetEvidence(weekly(75, true), staleAfter, 1)
+	require.False(t, stale.Confirmed)
+	require.Equal(t, "stale_weekly_snapshot", stale.Reason)
+}
 
 func TestSelectOpenAIWeeklyWindow(t *testing.T) {
 	t.Parallel()

@@ -3,12 +3,15 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math/rand/v2"
 	"strings"
 	"sync/atomic"
 	"time"
 )
+
+var errOpenAIQuotaReauthorizationRequired = errors.New("openai account reauthorization required")
 
 const (
 	openAITokenRefreshSkew    = 3 * time.Minute
@@ -268,6 +271,73 @@ func (p *OpenAITokenProvider) GetAccessToken(ctx context.Context, account *Accou
 	}
 
 	return accessToken, nil
+}
+
+// RecoverAfterUnauthorized 在上游 401 后重读账号，并在必要时通过共享刷新锁强制刷新一次。
+func (p *OpenAITokenProvider) RecoverAfterUnauthorized(ctx context.Context, observed *Account) (*Account, error) {
+	if p == nil || p.accountRepo == nil || observed == nil {
+		return nil, errOpenAIQuotaReauthorizationRequired
+	}
+	latest, err := p.accountRepo.GetByID(ctx, observed.ID)
+	if err != nil || latest == nil {
+		return nil, errOpenAIQuotaReauthorizationRequired
+	}
+	cacheKey := OpenAITokenCacheKey(latest)
+	if p.tokenCache != nil {
+		_ = p.tokenCache.DeleteAccessToken(ctx, cacheKey)
+	}
+	credentialsChanged := latest.GetCredentialAsInt64("_token_version") != observed.GetCredentialAsInt64("_token_version") ||
+		latest.GetOpenAIAccessToken() != observed.GetOpenAIAccessToken() ||
+		codexAccountIdentityNamespace(latest) != codexAccountIdentityNamespace(observed)
+	if credentialsChanged {
+		return latest, nil
+	}
+	if latest.IsOpenAIPersonalAccessToken() || latest.IsOpenAIAgentIdentity() ||
+		strings.TrimSpace(latest.GetOpenAIRefreshToken()) == "" || p.refreshAPI == nil || p.executor == nil {
+		return nil, errOpenAIQuotaReauthorizationRequired
+	}
+
+	result, err := p.refreshAPI.ForceRefresh(ctx, latest, p.executor)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", errOpenAIQuotaReauthorizationRequired, err)
+	}
+	if result != nil && result.LockHeld {
+		return p.waitForAccountCredentialChange(ctx, observed)
+	}
+	if result == nil || result.Account == nil {
+		return nil, errOpenAIQuotaReauthorizationRequired
+	}
+	if p.tokenCache != nil {
+		_ = p.tokenCache.DeleteAccessToken(ctx, cacheKey)
+	}
+	return result.Account, nil
+}
+
+func (p *OpenAITokenProvider) InvalidateAccessToken(ctx context.Context, account *Account) {
+	if p == nil || p.tokenCache == nil || account == nil {
+		return
+	}
+	_ = p.tokenCache.DeleteAccessToken(ctx, OpenAITokenCacheKey(account))
+}
+
+func (p *OpenAITokenProvider) waitForAccountCredentialChange(ctx context.Context, observed *Account) (*Account, error) {
+	for attempt := 0; attempt < openAILockMaxAttempts; attempt++ {
+		timer := time.NewTimer(jitterLockWait(openAILockInitialWait << attempt))
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+		latest, err := p.accountRepo.GetByID(ctx, observed.ID)
+		if err == nil && latest != nil && (latest.GetCredentialAsInt64("_token_version") != observed.GetCredentialAsInt64("_token_version") ||
+			latest.GetOpenAIAccessToken() != observed.GetOpenAIAccessToken()) {
+			return latest, nil
+		}
+	}
+	return nil, errOpenAIQuotaReauthorizationRequired
 }
 
 // disableAccountMissingRefreshToken 在请求路径上发现 OpenAI OAuth 账号

@@ -259,6 +259,47 @@ describe('API Client', () => {
       )
     })
 
+    it('规范化 HTTP 错误时保留诊断字段和响应请求 ID', async () => {
+      const adapter = vi.fn().mockRejectedValue({
+        response: {
+          status: 502,
+          data: {
+            message: 'OpenAI 周额度查询失败',
+            reason: 'OPENAI_WEEKLY_QUOTA_QUERY_FAILED',
+            metadata: {
+              phase: 'upstream_query',
+              retryable: true,
+            },
+          },
+          headers: new axios.AxiosHeaders({
+            'X-Request-ID': 'req-weekly-quota-123',
+          }),
+        },
+        config: {
+          url: '/admin/ops/openai-weekly-quota-reset-rules/7/check',
+          headers: {},
+        },
+        code: 'ERR_BAD_RESPONSE',
+        message: 'Request failed with status code 502',
+      })
+      apiClient.defaults.adapter = adapter
+
+      await expect(
+        apiClient.post('/admin/ops/openai-weekly-quota-reset-rules/7/check')
+      ).rejects.toEqual(
+        expect.objectContaining({
+          status: 502,
+          message: 'OpenAI 周额度查询失败',
+          reason: 'OPENAI_WEEKLY_QUOTA_QUERY_FAILED',
+          metadata: {
+            phase: 'upstream_query',
+            retryable: true,
+          },
+          request_id: 'req-weekly-quota-123',
+        })
+      )
+    })
+
     it('部署与运营合规未确认时广播事件且保留登录态', async () => {
       localStorage.setItem('auth_token', 'admin-token')
       const listener = vi.fn()

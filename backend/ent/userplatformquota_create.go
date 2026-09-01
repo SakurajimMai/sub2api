@@ -161,6 +161,34 @@ func (_c *UserPlatformQuotaCreate) SetNillableMonthlyUsageUsd(v *float64) *UserP
 	return _c
 }
 
+// SetWeeklyQuotaGeneration sets the "weekly_quota_generation" field.
+func (_c *UserPlatformQuotaCreate) SetWeeklyQuotaGeneration(v int64) *UserPlatformQuotaCreate {
+	_c.mutation.SetWeeklyQuotaGeneration(v)
+	return _c
+}
+
+// SetNillableWeeklyQuotaGeneration sets the "weekly_quota_generation" field if the given value is not nil.
+func (_c *UserPlatformQuotaCreate) SetNillableWeeklyQuotaGeneration(v *int64) *UserPlatformQuotaCreate {
+	if v != nil {
+		_c.SetWeeklyQuotaGeneration(*v)
+	}
+	return _c
+}
+
+// SetWeeklyReservedGeneration sets the "weekly_reserved_generation" field.
+func (_c *UserPlatformQuotaCreate) SetWeeklyReservedGeneration(v int64) *UserPlatformQuotaCreate {
+	_c.mutation.SetWeeklyReservedGeneration(v)
+	return _c
+}
+
+// SetNillableWeeklyReservedGeneration sets the "weekly_reserved_generation" field if the given value is not nil.
+func (_c *UserPlatformQuotaCreate) SetNillableWeeklyReservedGeneration(v *int64) *UserPlatformQuotaCreate {
+	if v != nil {
+		_c.SetWeeklyReservedGeneration(*v)
+	}
+	return _c
+}
+
 // SetDailyWindowStart sets the "daily_window_start" field.
 func (_c *UserPlatformQuotaCreate) SetDailyWindowStart(v time.Time) *UserPlatformQuotaCreate {
 	_c.mutation.SetDailyWindowStart(v)
@@ -271,6 +299,14 @@ func (_c *UserPlatformQuotaCreate) defaults() error {
 		v := userplatformquota.DefaultMonthlyUsageUsd
 		_c.mutation.SetMonthlyUsageUsd(v)
 	}
+	if _, ok := _c.mutation.WeeklyQuotaGeneration(); !ok {
+		v := userplatformquota.DefaultWeeklyQuotaGeneration
+		_c.mutation.SetWeeklyQuotaGeneration(v)
+	}
+	if _, ok := _c.mutation.WeeklyReservedGeneration(); !ok {
+		v := userplatformquota.DefaultWeeklyReservedGeneration
+		_c.mutation.SetWeeklyReservedGeneration(v)
+	}
 	return nil
 }
 
@@ -301,6 +337,12 @@ func (_c *UserPlatformQuotaCreate) check() error {
 	}
 	if _, ok := _c.mutation.MonthlyUsageUsd(); !ok {
 		return &ValidationError{Name: "monthly_usage_usd", err: errors.New(`ent: missing required field "UserPlatformQuota.monthly_usage_usd"`)}
+	}
+	if _, ok := _c.mutation.WeeklyQuotaGeneration(); !ok {
+		return &ValidationError{Name: "weekly_quota_generation", err: errors.New(`ent: missing required field "UserPlatformQuota.weekly_quota_generation"`)}
+	}
+	if _, ok := _c.mutation.WeeklyReservedGeneration(); !ok {
+		return &ValidationError{Name: "weekly_reserved_generation", err: errors.New(`ent: missing required field "UserPlatformQuota.weekly_reserved_generation"`)}
 	}
 	if len(_c.mutation.UserIDs()) == 0 {
 		return &ValidationError{Name: "user", err: errors.New(`ent: missing required edge "UserPlatformQuota.user"`)}
@@ -371,6 +413,14 @@ func (_c *UserPlatformQuotaCreate) createSpec() (*UserPlatformQuota, *sqlgraph.C
 	if value, ok := _c.mutation.MonthlyUsageUsd(); ok {
 		_spec.SetField(userplatformquota.FieldMonthlyUsageUsd, field.TypeFloat64, value)
 		_node.MonthlyUsageUsd = value
+	}
+	if value, ok := _c.mutation.WeeklyQuotaGeneration(); ok {
+		_spec.SetField(userplatformquota.FieldWeeklyQuotaGeneration, field.TypeInt64, value)
+		_node.WeeklyQuotaGeneration = value
+	}
+	if value, ok := _c.mutation.WeeklyReservedGeneration(); ok {
+		_spec.SetField(userplatformquota.FieldWeeklyReservedGeneration, field.TypeInt64, value)
+		_node.WeeklyReservedGeneration = value
 	}
 	if value, ok := _c.mutation.DailyWindowStart(); ok {
 		_spec.SetField(userplatformquota.FieldDailyWindowStart, field.TypeTime, value)
@@ -630,6 +680,42 @@ func (u *UserPlatformQuotaUpsert) UpdateMonthlyUsageUsd() *UserPlatformQuotaUpse
 // AddMonthlyUsageUsd adds v to the "monthly_usage_usd" field.
 func (u *UserPlatformQuotaUpsert) AddMonthlyUsageUsd(v float64) *UserPlatformQuotaUpsert {
 	u.Add(userplatformquota.FieldMonthlyUsageUsd, v)
+	return u
+}
+
+// SetWeeklyQuotaGeneration sets the "weekly_quota_generation" field.
+func (u *UserPlatformQuotaUpsert) SetWeeklyQuotaGeneration(v int64) *UserPlatformQuotaUpsert {
+	u.Set(userplatformquota.FieldWeeklyQuotaGeneration, v)
+	return u
+}
+
+// UpdateWeeklyQuotaGeneration sets the "weekly_quota_generation" field to the value that was provided on create.
+func (u *UserPlatformQuotaUpsert) UpdateWeeklyQuotaGeneration() *UserPlatformQuotaUpsert {
+	u.SetExcluded(userplatformquota.FieldWeeklyQuotaGeneration)
+	return u
+}
+
+// AddWeeklyQuotaGeneration adds v to the "weekly_quota_generation" field.
+func (u *UserPlatformQuotaUpsert) AddWeeklyQuotaGeneration(v int64) *UserPlatformQuotaUpsert {
+	u.Add(userplatformquota.FieldWeeklyQuotaGeneration, v)
+	return u
+}
+
+// SetWeeklyReservedGeneration sets the "weekly_reserved_generation" field.
+func (u *UserPlatformQuotaUpsert) SetWeeklyReservedGeneration(v int64) *UserPlatformQuotaUpsert {
+	u.Set(userplatformquota.FieldWeeklyReservedGeneration, v)
+	return u
+}
+
+// UpdateWeeklyReservedGeneration sets the "weekly_reserved_generation" field to the value that was provided on create.
+func (u *UserPlatformQuotaUpsert) UpdateWeeklyReservedGeneration() *UserPlatformQuotaUpsert {
+	u.SetExcluded(userplatformquota.FieldWeeklyReservedGeneration)
+	return u
+}
+
+// AddWeeklyReservedGeneration adds v to the "weekly_reserved_generation" field.
+func (u *UserPlatformQuotaUpsert) AddWeeklyReservedGeneration(v int64) *UserPlatformQuotaUpsert {
+	u.Add(userplatformquota.FieldWeeklyReservedGeneration, v)
 	return u
 }
 
@@ -939,6 +1025,48 @@ func (u *UserPlatformQuotaUpsertOne) AddMonthlyUsageUsd(v float64) *UserPlatform
 func (u *UserPlatformQuotaUpsertOne) UpdateMonthlyUsageUsd() *UserPlatformQuotaUpsertOne {
 	return u.Update(func(s *UserPlatformQuotaUpsert) {
 		s.UpdateMonthlyUsageUsd()
+	})
+}
+
+// SetWeeklyQuotaGeneration sets the "weekly_quota_generation" field.
+func (u *UserPlatformQuotaUpsertOne) SetWeeklyQuotaGeneration(v int64) *UserPlatformQuotaUpsertOne {
+	return u.Update(func(s *UserPlatformQuotaUpsert) {
+		s.SetWeeklyQuotaGeneration(v)
+	})
+}
+
+// AddWeeklyQuotaGeneration adds v to the "weekly_quota_generation" field.
+func (u *UserPlatformQuotaUpsertOne) AddWeeklyQuotaGeneration(v int64) *UserPlatformQuotaUpsertOne {
+	return u.Update(func(s *UserPlatformQuotaUpsert) {
+		s.AddWeeklyQuotaGeneration(v)
+	})
+}
+
+// UpdateWeeklyQuotaGeneration sets the "weekly_quota_generation" field to the value that was provided on create.
+func (u *UserPlatformQuotaUpsertOne) UpdateWeeklyQuotaGeneration() *UserPlatformQuotaUpsertOne {
+	return u.Update(func(s *UserPlatformQuotaUpsert) {
+		s.UpdateWeeklyQuotaGeneration()
+	})
+}
+
+// SetWeeklyReservedGeneration sets the "weekly_reserved_generation" field.
+func (u *UserPlatformQuotaUpsertOne) SetWeeklyReservedGeneration(v int64) *UserPlatformQuotaUpsertOne {
+	return u.Update(func(s *UserPlatformQuotaUpsert) {
+		s.SetWeeklyReservedGeneration(v)
+	})
+}
+
+// AddWeeklyReservedGeneration adds v to the "weekly_reserved_generation" field.
+func (u *UserPlatformQuotaUpsertOne) AddWeeklyReservedGeneration(v int64) *UserPlatformQuotaUpsertOne {
+	return u.Update(func(s *UserPlatformQuotaUpsert) {
+		s.AddWeeklyReservedGeneration(v)
+	})
+}
+
+// UpdateWeeklyReservedGeneration sets the "weekly_reserved_generation" field to the value that was provided on create.
+func (u *UserPlatformQuotaUpsertOne) UpdateWeeklyReservedGeneration() *UserPlatformQuotaUpsertOne {
+	return u.Update(func(s *UserPlatformQuotaUpsert) {
+		s.UpdateWeeklyReservedGeneration()
 	})
 }
 
@@ -1423,6 +1551,48 @@ func (u *UserPlatformQuotaUpsertBulk) AddMonthlyUsageUsd(v float64) *UserPlatfor
 func (u *UserPlatformQuotaUpsertBulk) UpdateMonthlyUsageUsd() *UserPlatformQuotaUpsertBulk {
 	return u.Update(func(s *UserPlatformQuotaUpsert) {
 		s.UpdateMonthlyUsageUsd()
+	})
+}
+
+// SetWeeklyQuotaGeneration sets the "weekly_quota_generation" field.
+func (u *UserPlatformQuotaUpsertBulk) SetWeeklyQuotaGeneration(v int64) *UserPlatformQuotaUpsertBulk {
+	return u.Update(func(s *UserPlatformQuotaUpsert) {
+		s.SetWeeklyQuotaGeneration(v)
+	})
+}
+
+// AddWeeklyQuotaGeneration adds v to the "weekly_quota_generation" field.
+func (u *UserPlatformQuotaUpsertBulk) AddWeeklyQuotaGeneration(v int64) *UserPlatformQuotaUpsertBulk {
+	return u.Update(func(s *UserPlatformQuotaUpsert) {
+		s.AddWeeklyQuotaGeneration(v)
+	})
+}
+
+// UpdateWeeklyQuotaGeneration sets the "weekly_quota_generation" field to the value that was provided on create.
+func (u *UserPlatformQuotaUpsertBulk) UpdateWeeklyQuotaGeneration() *UserPlatformQuotaUpsertBulk {
+	return u.Update(func(s *UserPlatformQuotaUpsert) {
+		s.UpdateWeeklyQuotaGeneration()
+	})
+}
+
+// SetWeeklyReservedGeneration sets the "weekly_reserved_generation" field.
+func (u *UserPlatformQuotaUpsertBulk) SetWeeklyReservedGeneration(v int64) *UserPlatformQuotaUpsertBulk {
+	return u.Update(func(s *UserPlatformQuotaUpsert) {
+		s.SetWeeklyReservedGeneration(v)
+	})
+}
+
+// AddWeeklyReservedGeneration adds v to the "weekly_reserved_generation" field.
+func (u *UserPlatformQuotaUpsertBulk) AddWeeklyReservedGeneration(v int64) *UserPlatformQuotaUpsertBulk {
+	return u.Update(func(s *UserPlatformQuotaUpsert) {
+		s.AddWeeklyReservedGeneration(v)
+	})
+}
+
+// UpdateWeeklyReservedGeneration sets the "weekly_reserved_generation" field to the value that was provided on create.
+func (u *UserPlatformQuotaUpsertBulk) UpdateWeeklyReservedGeneration() *UserPlatformQuotaUpsertBulk {
+	return u.Update(func(s *UserPlatformQuotaUpsert) {
+		s.UpdateWeeklyReservedGeneration()
 	})
 }
 

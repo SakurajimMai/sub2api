@@ -39,6 +39,10 @@ func (a *userPlatformQuotaServiceAdapter) IncrementUsageWithReset(ctx context.Co
 	return a.inner.IncrementUsageWithReset(ctx, userID, platform, cost, now)
 }
 
+func (a *userPlatformQuotaServiceAdapter) IncrementUsageWithGeneration(ctx context.Context, userID int64, platform string, cost float64, weeklyGeneration int64, now time.Time) error {
+	return a.inner.IncrementUsageWithGeneration(ctx, userID, platform, cost, weeklyGeneration, now)
+}
+
 // ListByUser 查询用户的所有平台配额记录。
 func (a *userPlatformQuotaServiceAdapter) ListByUser(ctx context.Context, userID int64) ([]service.UserPlatformQuotaRecord, error) {
 	rows, err := a.inner.ListByUser(ctx, userID)
@@ -108,6 +112,7 @@ func (a *userPlatformQuotaServiceAdapter) BatchSnapshotUsage(ctx context.Context
 			DailyWindowStart:   s.DailyWindowStart,
 			WeeklyWindowStart:  s.WeeklyWindowStart,
 			MonthlyWindowStart: s.MonthlyWindowStart,
+			WeeklyGeneration:   s.WeeklyGeneration,
 		}
 	}
 	err := a.inner.BatchSnapshotUsage(ctx, repoSnaps, now)
@@ -132,6 +137,15 @@ func (a *genericUserPlatformQuotaAdapter) GetByUserPlatform(ctx context.Context,
 
 // IncrementUsageWithReset 原子累加 cost（通用 adapter 实现）。
 func (a *genericUserPlatformQuotaAdapter) IncrementUsageWithReset(ctx context.Context, userID int64, platform string, cost float64, now time.Time) error {
+	return a.inner.IncrementUsageWithReset(ctx, userID, platform, cost, now)
+}
+
+func (a *genericUserPlatformQuotaAdapter) IncrementUsageWithGeneration(ctx context.Context, userID int64, platform string, cost float64, weeklyGeneration int64, now time.Time) error {
+	if inner, ok := a.inner.(interface {
+		IncrementUsageWithGeneration(context.Context, int64, string, float64, int64, time.Time) error
+	}); ok {
+		return inner.IncrementUsageWithGeneration(ctx, userID, platform, cost, weeklyGeneration, now)
+	}
 	return a.inner.IncrementUsageWithReset(ctx, userID, platform, cost, now)
 }
 
@@ -216,17 +230,19 @@ func (a *genericUserPlatformQuotaAdapter) BatchSnapshotUsage(ctx context.Context
 // toServiceRecord 将 repository.UserPlatformQuotaRecord 转换为 service.UserPlatformQuotaRecord。
 func toServiceRecord(rec *UserPlatformQuotaRecord) *service.UserPlatformQuotaRecord {
 	return &service.UserPlatformQuotaRecord{
-		UserID:             rec.UserID,
-		Platform:           rec.Platform,
-		DailyLimitUSD:      rec.DailyLimitUSD,
-		WeeklyLimitUSD:     rec.WeeklyLimitUSD,
-		MonthlyLimitUSD:    rec.MonthlyLimitUSD,
-		DailyUsageUSD:      rec.DailyUsageUSD,
-		WeeklyUsageUSD:     rec.WeeklyUsageUSD,
-		MonthlyUsageUSD:    rec.MonthlyUsageUSD,
-		DailyWindowStart:   rec.DailyWindowStart,
-		WeeklyWindowStart:  rec.WeeklyWindowStart,
-		MonthlyWindowStart: rec.MonthlyWindowStart,
+		UserID:                   rec.UserID,
+		Platform:                 rec.Platform,
+		DailyLimitUSD:            rec.DailyLimitUSD,
+		WeeklyLimitUSD:           rec.WeeklyLimitUSD,
+		MonthlyLimitUSD:          rec.MonthlyLimitUSD,
+		DailyUsageUSD:            rec.DailyUsageUSD,
+		WeeklyUsageUSD:           rec.WeeklyUsageUSD,
+		MonthlyUsageUSD:          rec.MonthlyUsageUSD,
+		WeeklyGeneration:         rec.WeeklyGeneration,
+		WeeklyReservedGeneration: rec.WeeklyReservedGeneration,
+		DailyWindowStart:         rec.DailyWindowStart,
+		WeeklyWindowStart:        rec.WeeklyWindowStart,
+		MonthlyWindowStart:       rec.MonthlyWindowStart,
 	}
 }
 
@@ -235,17 +251,19 @@ func toRepoRecords(records []service.UserPlatformQuotaRecord) []UserPlatformQuot
 	out := make([]UserPlatformQuotaRecord, len(records))
 	for i, r := range records {
 		out[i] = UserPlatformQuotaRecord{
-			UserID:             r.UserID,
-			Platform:           r.Platform,
-			DailyLimitUSD:      r.DailyLimitUSD,
-			WeeklyLimitUSD:     r.WeeklyLimitUSD,
-			MonthlyLimitUSD:    r.MonthlyLimitUSD,
-			DailyUsageUSD:      r.DailyUsageUSD,
-			WeeklyUsageUSD:     r.WeeklyUsageUSD,
-			MonthlyUsageUSD:    r.MonthlyUsageUSD,
-			DailyWindowStart:   r.DailyWindowStart,
-			WeeklyWindowStart:  r.WeeklyWindowStart,
-			MonthlyWindowStart: r.MonthlyWindowStart,
+			UserID:                   r.UserID,
+			Platform:                 r.Platform,
+			DailyLimitUSD:            r.DailyLimitUSD,
+			WeeklyLimitUSD:           r.WeeklyLimitUSD,
+			MonthlyLimitUSD:          r.MonthlyLimitUSD,
+			DailyUsageUSD:            r.DailyUsageUSD,
+			WeeklyUsageUSD:           r.WeeklyUsageUSD,
+			MonthlyUsageUSD:          r.MonthlyUsageUSD,
+			WeeklyGeneration:         r.WeeklyGeneration,
+			WeeklyReservedGeneration: r.WeeklyReservedGeneration,
+			DailyWindowStart:         r.DailyWindowStart,
+			WeeklyWindowStart:        r.WeeklyWindowStart,
+			MonthlyWindowStart:       r.MonthlyWindowStart,
 		}
 	}
 	return out

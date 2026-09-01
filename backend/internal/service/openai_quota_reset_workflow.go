@@ -11,6 +11,7 @@ const (
 	OpenAIQuotaResetWarningCacheRefreshFailed    = "reset_credit_cache_refresh_failed"
 	OpenAIQuotaResetWarningAccountRecoveryFailed = "account_state_recovery_failed"
 	OpenAIQuotaResetWarningAccountRefreshFailed  = "account_state_refresh_failed"
+	OpenAIQuotaResetWarningWeeklyLinkageFailed   = "weekly_quota_linkage_failed"
 )
 
 type openAIQuotaResetWorkflowQuota interface {

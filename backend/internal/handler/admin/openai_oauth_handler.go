@@ -26,6 +26,7 @@ type OpenAIOAuthHandler struct {
 
 type openAIQuotaService interface {
 	QueryUsage(ctx context.Context, accountID int64) (*service.OpenAIQuotaUsage, error)
+	QueryUsageSnapshot(ctx context.Context, accountID int64) (*service.OpenAIQuotaUsage, error)
 	CacheResetCreditsSnapshot(ctx context.Context, accountID int64, credits *service.OpenAIRateLimitResetCredits) error
 	CachePostResetSnapshot(ctx context.Context, accountID int64, usage *service.OpenAIQuotaUsage) error
 	ResetCredit(ctx context.Context, accountID int64) (*service.OpenAIQuotaResetResult, error)
@@ -583,6 +584,7 @@ func (h *OpenAIOAuthHandler) ResetQuota(c *gin.Context) {
 		response.BadRequest(c, "openai quota service is not enabled")
 		return
 	}
+	before, _ := h.quotaService.QueryUsageSnapshot(c.Request.Context(), accountID)
 	result, err := h.quotaService.ResetCredit(c.Request.Context(), accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -592,6 +594,10 @@ func (h *OpenAIOAuthHandler) ResetQuota(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "openai quota reset returned an empty result")
 		return
 	}
+	_, candidateErr := service.NotifyOpenAIWeeklyQuotaResetOperation(c.Request.Context(), service.OpenAIWeeklyQuotaResetOperationEvidence{
+		SourceAccountID: accountID, OperationID: result.OperationID, EventSource: "manual_reset",
+		Before: before, After: nil, WindowsReset: result.WindowsReset, ObservedAt: time.Now().UTC(),
+	})
 
 	resetResponse := openAIQuotaResetResponse{OpenAIQuotaResetResult: *result}
 	postCtx, cancelPost := openAIQuotaResetPostProcessContext(c.Request.Context())
@@ -610,6 +616,12 @@ func (h *OpenAIOAuthHandler) ResetQuota(c *gin.Context) {
 	resetResponse.WarningCode = postResult.WarningCode
 	if postResult.Account != nil {
 		resetResponse.Account = dto.AccountFromService(postResult.Account)
+	}
+	if _, linkageErr := service.NotifyOpenAIWeeklyQuotaResetOperation(postCtx, service.OpenAIWeeklyQuotaResetOperationEvidence{
+		SourceAccountID: accountID, OperationID: result.OperationID, EventSource: "manual_reset",
+		Before: before, After: postResult.Quota, WindowsReset: result.WindowsReset, ObservedAt: time.Now().UTC(),
+	}); (linkageErr != nil || candidateErr != nil) && resetResponse.WarningCode == "" {
+		resetResponse.WarningCode = service.OpenAIQuotaResetWarningWeeklyLinkageFailed
 	}
 	response.Success(c, resetResponse)
 }

@@ -42,6 +42,11 @@ func (s *openAIQuotaWorkflowStub) QueryUsage(ctx context.Context, _ int64) (*ser
 	return s.queryResult, s.queryErr
 }
 
+func (s *openAIQuotaWorkflowStub) QueryUsageSnapshot(ctx context.Context, _ int64) (*service.OpenAIQuotaUsage, error) {
+	s.queryCtxErr = ctx.Err()
+	return s.queryResult, s.queryErr
+}
+
 func (s *openAIQuotaWorkflowStub) CacheResetCreditsSnapshot(ctx context.Context, _ int64, _ *service.OpenAIRateLimitResetCredits) error {
 	s.cacheCalls++
 	s.cacheCtxErr = ctx.Err()

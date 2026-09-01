@@ -9,6 +9,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -200,4 +201,132 @@ func TestUserPlatformQuotaCache_ResetWeeklyPreservesUsageFromCurrentWindow(t *te
 	if got.WeeklyUsageUSD != 0.75 || got.Version != 9 {
 		t.Fatalf("current-window usage was overwritten: %+v", got)
 	}
+}
+
+func TestUserPlatformQuotaCache_WeeklyGenerationPreservesPostSwitchUsage(t *testing.T) {
+	c, _ := newMiniRedisCache(t)
+	ctx := context.Background()
+	oldStart := time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC)
+	newStart := time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, c.SetUserPlatformQuotaCache(ctx, 21, "openai", &service.UserPlatformQuotaCacheEntry{
+		WeeklyUsageUSD:     12.5,
+		WeeklyGeneration:   4,
+		Version:            9,
+		SchemaVersion:      service.UserPlatformQuotaCacheSchemaV2,
+		WeeklyWindowStart:  &oldStart,
+		DailyWindowStart:   &oldStart,
+		MonthlyWindowStart: &oldStart,
+	}, time.Hour))
+
+	prepared, err := c.PrepareUserPlatformWeeklyQuotaReset(ctx, 21, "openai", "event-5", 5, time.Hour)
+	require.NoError(t, err)
+	require.True(t, prepared)
+
+	generation, err := c.IncrUserPlatformQuotaUsageCacheWithGeneration(ctx, 21, "openai", 0.75, time.Hour, true)
+	require.NoError(t, err)
+	require.Equal(t, int64(5), generation)
+
+	pending, ok, err := c.GetUserPlatformQuotaCache(ctx, 21, "openai")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, 12.5, pending.WeeklyUsageUSD)
+	require.Equal(t, int64(4), pending.WeeklyGeneration)
+	require.Equal(t, int64(5), pending.WeeklyPendingGeneration)
+	require.Equal(t, 0.75, pending.WeeklyPendingUsageUSD)
+
+	finalized, err := c.FinalizeUserPlatformWeeklyQuotaReset(ctx, 21, "openai", "event-5", 5, newStart, time.Hour, true)
+	require.NoError(t, err)
+	require.True(t, finalized)
+
+	got, ok, err := c.GetUserPlatformQuotaCache(ctx, 21, "openai")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, int64(5), got.WeeklyGeneration)
+	require.Zero(t, got.WeeklyPendingGeneration)
+	require.Zero(t, got.WeeklyPendingUsageUSD)
+	require.Equal(t, 0.75, got.WeeklyUsageUSD)
+	require.NotNil(t, got.WeeklyWindowStart)
+	require.True(t, got.WeeklyWindowStart.Equal(newStart))
+
+	_, err = c.IncrUserPlatformQuotaUsageCacheWithGeneration(ctx, 21, "openai", 0.25, time.Hour, true)
+	require.NoError(t, err)
+	finalized, err = c.FinalizeUserPlatformWeeklyQuotaReset(ctx, 21, "openai", "event-5", 5, newStart, time.Hour, true)
+	require.NoError(t, err)
+	require.True(t, finalized)
+
+	got, _, err = c.GetUserPlatformQuotaCache(ctx, 21, "openai")
+	require.NoError(t, err)
+	require.Equal(t, 1.0, got.WeeklyUsageUSD, "同代次补偿不能再次清零新消费")
+}
+
+func TestUserPlatformQuotaCache_GenerationFenceRejectsStaleCacheReload(t *testing.T) {
+	c, _ := newMiniRedisCache(t)
+	ctx := context.Background()
+	oldStart := time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC)
+
+	prepared, err := c.PrepareUserPlatformWeeklyQuotaReset(ctx, 22, "openai", "event-3", 3, time.Hour)
+	require.NoError(t, err)
+	require.False(t, prepared, "cache miss 仍应建立 fence，但没有 hash 可切换")
+
+	require.NoError(t, c.SetUserPlatformQuotaCache(ctx, 22, "openai", &service.UserPlatformQuotaCacheEntry{
+		WeeklyUsageUSD:     9.5,
+		WeeklyGeneration:   2,
+		SchemaVersion:      service.UserPlatformQuotaCacheSchemaV2,
+		WeeklyWindowStart:  &oldStart,
+		DailyWindowStart:   &oldStart,
+		MonthlyWindowStart: &oldStart,
+	}, time.Hour))
+
+	got, ok, err := c.GetUserPlatformQuotaCache(ctx, 22, "openai")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, int64(3), got.WeeklyGeneration)
+	require.Zero(t, got.WeeklyUsageUSD, "旧代次 loader 不能恢复重置前周用量")
+}
+
+func TestUserPlatformQuotaCache_StaleFinalizeDoesNotDiscardNewerPendingGeneration(t *testing.T) {
+	c, _ := newMiniRedisCache(t)
+	ctx := context.Background()
+	oldStart := time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC)
+	firstStart := oldStart.Add(7 * 24 * time.Hour)
+	secondStart := firstStart.Add(7 * 24 * time.Hour)
+	require.NoError(t, c.SetUserPlatformQuotaCache(ctx, 31, "openai", &service.UserPlatformQuotaCacheEntry{
+		WeeklyUsageUSD: 9, WeeklyGeneration: 4, Version: 1,
+		SchemaVersion: service.UserPlatformQuotaCacheSchemaV2, WeeklyWindowStart: &oldStart,
+		DailyWindowStart: &oldStart, MonthlyWindowStart: &oldStart,
+	}, time.Hour))
+
+	prepared, err := c.PrepareUserPlatformWeeklyQuotaReset(ctx, 31, "openai", "event-5", 5, time.Hour)
+	require.NoError(t, err)
+	require.True(t, prepared)
+	_, err = c.IncrUserPlatformQuotaUsageCacheWithGeneration(ctx, 31, "openai", 0.5, time.Hour, true)
+	require.NoError(t, err)
+	finalized, err := c.FinalizeUserPlatformWeeklyQuotaReset(ctx, 31, "openai", "event-5", 5, firstStart, time.Hour, true)
+	require.NoError(t, err)
+	require.True(t, finalized)
+
+	prepared, err = c.PrepareUserPlatformWeeklyQuotaReset(ctx, 31, "openai", "event-6", 6, time.Hour)
+	require.NoError(t, err)
+	require.True(t, prepared)
+	_, err = c.IncrUserPlatformQuotaUsageCacheWithGeneration(ctx, 31, "openai", 1.25, time.Hour, true)
+	require.NoError(t, err)
+
+	finalized, err = c.FinalizeUserPlatformWeeklyQuotaReset(ctx, 31, "openai", "event-5", 5, firstStart, time.Hour, true)
+	require.NoError(t, err)
+	require.True(t, finalized)
+	got, ok, err := c.GetUserPlatformQuotaCache(ctx, 31, "openai")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, int64(5), got.WeeklyGeneration)
+	require.Equal(t, int64(6), got.WeeklyPendingGeneration)
+	require.Equal(t, 1.25, got.WeeklyPendingUsageUSD)
+
+	finalized, err = c.FinalizeUserPlatformWeeklyQuotaReset(ctx, 31, "openai", "event-6", 6, secondStart, time.Hour, true)
+	require.NoError(t, err)
+	require.True(t, finalized)
+	got, ok, err = c.GetUserPlatformQuotaCache(ctx, 31, "openai")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, int64(6), got.WeeklyGeneration)
+	require.Equal(t, 1.25, got.WeeklyUsageUSD)
 }

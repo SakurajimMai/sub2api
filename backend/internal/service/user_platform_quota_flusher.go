@@ -153,11 +153,18 @@ func (s *UserPlatformQuotaUsageFlusher) flushOneBatch(parentCtx context.Context)
 		if e.DailyWindowStart == nil || e.WeeklyWindowStart == nil || e.MonthlyWindowStart == nil {
 			continue
 		}
+		weeklyUsage := e.WeeklyUsageUSD
+		weeklyGeneration := e.WeeklyGeneration
+		if e.WeeklyPendingGeneration > weeklyGeneration {
+			weeklyGeneration = e.WeeklyPendingGeneration
+			weeklyUsage = e.WeeklyPendingUsageUSD
+		}
 		snaps = append(snaps, UserPlatformQuotaSnapshot{
 			UserID:             key.UserID,
 			Platform:           key.Platform,
 			DailyUsageUSD:      e.DailyUsageUSD,
-			WeeklyUsageUSD:     e.WeeklyUsageUSD,
+			WeeklyUsageUSD:     weeklyUsage,
+			WeeklyGeneration:   weeklyGeneration,
 			MonthlyUsageUSD:    e.MonthlyUsageUSD,
 			DailyWindowStart:   *e.DailyWindowStart,
 			WeeklyWindowStart:  *e.WeeklyWindowStart,

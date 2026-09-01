@@ -443,9 +443,24 @@ func (s *OpenAIQuotaAutoResetService) evaluateAccount(ctx context.Context, accou
 		s.recordAudit(accountID, assessment, available, "no_credit", 0, noCredit.ErrorCode)
 		return s.persistState(ctx, accountID, noCredit)
 	}
+	_, candidateErr := NotifyOpenAIWeeklyQuotaResetOperation(ctx, OpenAIWeeklyQuotaResetOperationEvidence{
+		SourceAccountID: accountID, OperationID: stableKey, EventSource: "auto_reset",
+		Before: usage, After: nil, WindowsReset: consumeResult.WindowsReset, ObservedAt: time.Now().UTC(),
+	})
 	postCtx, cancelPost := context.WithTimeout(context.WithoutCancel(ctx), 8*time.Second)
 	post := RunOpenAIQuotaResetPostProcess(postCtx, accountID, s.quota, s.recoverer, s.accountRepo.GetByID)
+	_, linkageErr := NotifyOpenAIWeeklyQuotaResetOperation(postCtx, OpenAIWeeklyQuotaResetOperationEvidence{
+		SourceAccountID: accountID, OperationID: stableKey, EventSource: "auto_reset",
+		Before: usage, After: post.Quota, WindowsReset: consumeResult.WindowsReset, ObservedAt: time.Now().UTC(),
+	})
 	cancelPost()
+	if linkageErr != nil || (candidateErr != nil && post.Quota == nil) {
+		if linkageErr == nil {
+			linkageErr = candidateErr
+		}
+		s.recordAudit(accountID, assessment, available, "linkage_failed", consumeResult.WindowsReset, infraerrors.Reason(linkageErr))
+		return s.failState(ctx, accountID, resetting, "WEEKLY_QUOTA_LINKAGE_FAILED", linkageErr)
+	}
 	if !post.AccountStateRecovered || post.WarningCode != "" {
 		code := post.WarningCode
 		if code == "" {

@@ -2419,6 +2419,14 @@ func init() {
 	userplatformquotaDescMonthlyUsageUsd := userplatformquotaFields[7].Descriptor()
 	// userplatformquota.DefaultMonthlyUsageUsd holds the default value on creation for the monthly_usage_usd field.
 	userplatformquota.DefaultMonthlyUsageUsd = userplatformquotaDescMonthlyUsageUsd.Default.(float64)
+	// userplatformquotaDescWeeklyQuotaGeneration is the schema descriptor for weekly_quota_generation field.
+	userplatformquotaDescWeeklyQuotaGeneration := userplatformquotaFields[8].Descriptor()
+	// userplatformquota.DefaultWeeklyQuotaGeneration holds the default value on creation for the weekly_quota_generation field.
+	userplatformquota.DefaultWeeklyQuotaGeneration = userplatformquotaDescWeeklyQuotaGeneration.Default.(int64)
+	// userplatformquotaDescWeeklyReservedGeneration is the schema descriptor for weekly_reserved_generation field.
+	userplatformquotaDescWeeklyReservedGeneration := userplatformquotaFields[9].Descriptor()
+	// userplatformquota.DefaultWeeklyReservedGeneration holds the default value on creation for the weekly_reserved_generation field.
+	userplatformquota.DefaultWeeklyReservedGeneration = userplatformquotaDescWeeklyReservedGeneration.Default.(int64)
 	usersubscriptionMixin := schema.UserSubscription{}.Mixin()
 	usersubscriptionMixinHooks1 := usersubscriptionMixin[1].Hooks()
 	usersubscription.Hooks[0] = usersubscriptionMixinHooks1[0]

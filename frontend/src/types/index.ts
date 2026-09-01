@@ -484,11 +484,18 @@ export interface ApiResponse<T = unknown> {
   code: number
   message: string
   data: T
+  reason?: string
+  metadata?: Record<string, unknown>
 }
 
 export interface ApiError {
-  detail: string
-  code?: string
+  status: number
+  message: string
+  code?: string | number
+  reason?: string
+  metadata?: Record<string, unknown>
+  request_id?: string
+  detail?: string
   field?: string
 }
 

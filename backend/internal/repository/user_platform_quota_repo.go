@@ -16,17 +16,19 @@ import (
 // UserPlatformQuotaRecord 是 repository 层的传输结构体，
 // 与 ent.UserPlatformQuota 实体解耦，供业务层使用。
 type UserPlatformQuotaRecord struct {
-	UserID             int64
-	Platform           string
-	DailyLimitUSD      *float64
-	WeeklyLimitUSD     *float64
-	MonthlyLimitUSD    *float64
-	DailyUsageUSD      float64
-	WeeklyUsageUSD     float64
-	MonthlyUsageUSD    float64
-	DailyWindowStart   *time.Time
-	WeeklyWindowStart  *time.Time
-	MonthlyWindowStart *time.Time
+	UserID                   int64
+	Platform                 string
+	DailyLimitUSD            *float64
+	WeeklyLimitUSD           *float64
+	MonthlyLimitUSD          *float64
+	DailyUsageUSD            float64
+	WeeklyUsageUSD           float64
+	MonthlyUsageUSD          float64
+	WeeklyGeneration         int64
+	WeeklyReservedGeneration int64
+	DailyWindowStart         *time.Time
+	WeeklyWindowStart        *time.Time
+	MonthlyWindowStart       *time.Time
 }
 
 // ErrUserPlatformQuotaNotFound 用于 ResetExpiredWindow 等需要"必须命中已有记录"的方法。
@@ -43,6 +45,7 @@ type UserPlatformQuotaSnapshot struct {
 	DailyUsageUSD      float64
 	WeeklyUsageUSD     float64
 	MonthlyUsageUSD    float64
+	WeeklyGeneration   int64
 	DailyWindowStart   time.Time
 	WeeklyWindowStart  time.Time
 	MonthlyWindowStart time.Time
@@ -177,6 +180,10 @@ func (r *userPlatformQuotaRepository) ListByUser(ctx context.Context, userID int
 //
 // 上层正常路径（注册时 BulkInsertInitial）保证 limit 在记录创建时就被写入。
 func (r *userPlatformQuotaRepository) IncrementUsageWithReset(ctx context.Context, userID int64, platform string, cost float64, now time.Time) error {
+	return r.IncrementUsageWithGeneration(ctx, userID, platform, cost, -1, now)
+}
+
+func (r *userPlatformQuotaRepository) IncrementUsageWithGeneration(ctx context.Context, userID int64, platform string, cost float64, weeklyGeneration int64, now time.Time) error {
 	return r.withTx(ctx, func(txCtx context.Context, txClient *dbent.Client) error {
 		existing, err := txClient.UserPlatformQuota.Query().
 			Where(
@@ -194,17 +201,23 @@ func (r *userPlatformQuotaRepository) IncrementUsageWithReset(ctx context.Contex
 			// 写法与本文件 insertLimitsRow / BulkInsertInitial 的 ON CONFLICT 一致。
 			const insertSQL = `INSERT INTO user_platform_quotas
 				(user_id, platform, daily_usage_usd, weekly_usage_usd, monthly_usage_usd,
+				 weekly_quota_generation, weekly_reserved_generation,
 				 daily_window_start, weekly_window_start, monthly_window_start, created_at, updated_at)
-				VALUES ($1, $2, $3, $3, $3, $4, $5, $6, $7, $7)
+				VALUES ($1, $2, $3, $3, $3, $4, $4, $5, $6, $7, $8, $8)
 				ON CONFLICT (user_id, platform) WHERE deleted_at IS NULL DO UPDATE SET
 					daily_usage_usd   = user_platform_quotas.daily_usage_usd   + EXCLUDED.daily_usage_usd,
-					weekly_usage_usd  = user_platform_quotas.weekly_usage_usd  + EXCLUDED.weekly_usage_usd,
+					weekly_usage_usd  = CASE
+						WHEN EXCLUDED.weekly_quota_generation < user_platform_quotas.weekly_quota_generation THEN user_platform_quotas.weekly_usage_usd
+						WHEN EXCLUDED.weekly_quota_generation > user_platform_quotas.weekly_quota_generation THEN EXCLUDED.weekly_usage_usd
+						ELSE user_platform_quotas.weekly_usage_usd + EXCLUDED.weekly_usage_usd END,
 					monthly_usage_usd = user_platform_quotas.monthly_usage_usd + EXCLUDED.monthly_usage_usd,
+					weekly_quota_generation = GREATEST(user_platform_quotas.weekly_quota_generation, EXCLUDED.weekly_quota_generation),
+					weekly_reserved_generation = GREATEST(user_platform_quotas.weekly_reserved_generation, EXCLUDED.weekly_reserved_generation),
 					updated_at        = EXCLUDED.updated_at`
-			// $6 = now：30 天滚动月度窗口以当前时刻为起始
+			generation := max(int64(0), weeklyGeneration)
 			_, e := txClient.ExecContext(txCtx, insertSQL,
 				userID, platform, cost,
-				timezone.StartOfDay(now), timezone.StartOfWeek(now), now, now)
+				generation, timezone.StartOfDay(now), timezone.StartOfWeek(now), now, now)
 			return e
 		}
 		if err != nil {
@@ -212,13 +225,22 @@ func (r *userPlatformQuotaRepository) IncrementUsageWithReset(ctx context.Contex
 		}
 
 		newDaily := maybeReset(existing.DailyUsageUsd, existing.DailyWindowStart, timezone.StartOfDay(now), cost)
-		newWeekly := maybeReset(existing.WeeklyUsageUsd, existing.WeeklyWindowStart, timezone.StartOfWeek(now), cost)
+		observedGeneration := weeklyGeneration
+		if observedGeneration < 0 && existing.WeeklyReservedGeneration > existing.WeeklyQuotaGeneration {
+			observedGeneration = existing.WeeklyReservedGeneration
+		}
+		newWeekly, generation := weeklyUsageForGeneration(
+			existing.WeeklyUsageUsd, existing.WeeklyQuotaGeneration, observedGeneration,
+			existing.WeeklyWindowStart, timezone.StartOfWeek(now), cost,
+		)
 		// 30 天滚动月度窗口：过期时重置为 cost 并以 now 为新起始，否则累加保留原起始
 		newMonthly, newMonthlyStart := monthlyMaybeReset(existing.MonthlyUsageUsd, existing.MonthlyWindowStart, cost, now)
 
 		_, e := existing.Update().
 			SetDailyUsageUsd(newDaily).
 			SetWeeklyUsageUsd(newWeekly).
+			SetWeeklyQuotaGeneration(max(existing.WeeklyQuotaGeneration, generation)).
+			SetWeeklyReservedGeneration(max(existing.WeeklyReservedGeneration, generation)).
 			SetMonthlyUsageUsd(newMonthly).
 			SetDailyWindowStart(timezone.StartOfDay(now)).
 			SetWeeklyWindowStart(timezone.StartOfWeek(now)).
@@ -226,6 +248,21 @@ func (r *userPlatformQuotaRepository) IncrementUsageWithReset(ctx context.Contex
 			Save(txCtx)
 		return e
 	})
+}
+
+func weeklyUsageForGeneration(currentUsage float64, currentGeneration, observedGeneration int64, currentStart *time.Time, nextStart time.Time, cost float64) (float64, int64) {
+	generation := observedGeneration
+	if generation < 0 {
+		generation = currentGeneration
+	}
+	switch {
+	case generation < currentGeneration:
+		return currentUsage, currentGeneration
+	case generation > currentGeneration:
+		return cost, generation
+	default:
+		return maybeReset(currentUsage, currentStart, nextStart, cost), currentGeneration
+	}
 }
 
 // ResetExpiredWindow 无条件重置指定窗口（daily/weekly/monthly）的用量与起始时间。
@@ -296,17 +333,19 @@ func (r *userPlatformQuotaRepository) withTx(ctx context.Context, fn func(txCtx 
 // 注意 ent 生成字段名为 DailyLimitUsd（非 DailyLimitUSD）。
 func entQuotaToRecord(e *dbent.UserPlatformQuota) *UserPlatformQuotaRecord {
 	return &UserPlatformQuotaRecord{
-		UserID:             e.UserID,
-		Platform:           e.Platform,
-		DailyLimitUSD:      e.DailyLimitUsd,
-		WeeklyLimitUSD:     e.WeeklyLimitUsd,
-		MonthlyLimitUSD:    e.MonthlyLimitUsd,
-		DailyUsageUSD:      e.DailyUsageUsd,
-		WeeklyUsageUSD:     e.WeeklyUsageUsd,
-		MonthlyUsageUSD:    e.MonthlyUsageUsd,
-		DailyWindowStart:   e.DailyWindowStart,
-		WeeklyWindowStart:  e.WeeklyWindowStart,
-		MonthlyWindowStart: e.MonthlyWindowStart,
+		UserID:                   e.UserID,
+		Platform:                 e.Platform,
+		DailyLimitUSD:            e.DailyLimitUsd,
+		WeeklyLimitUSD:           e.WeeklyLimitUsd,
+		MonthlyLimitUSD:          e.MonthlyLimitUsd,
+		DailyUsageUSD:            e.DailyUsageUsd,
+		WeeklyUsageUSD:           e.WeeklyUsageUsd,
+		MonthlyUsageUSD:          e.MonthlyUsageUsd,
+		WeeklyGeneration:         e.WeeklyQuotaGeneration,
+		WeeklyReservedGeneration: e.WeeklyReservedGeneration,
+		DailyWindowStart:         e.DailyWindowStart,
+		WeeklyWindowStart:        e.WeeklyWindowStart,
+		MonthlyWindowStart:       e.MonthlyWindowStart,
 	}
 }
 
@@ -481,39 +520,46 @@ func buildUserPlatformQuotaSnapshotUpsert(batch []UserPlatformQuotaSnapshot, now
 	_, _ = sb.WriteString(
 		"INSERT INTO user_platform_quotas" +
 			" (user_id, platform, daily_usage_usd, weekly_usage_usd, monthly_usage_usd," +
-			" daily_window_start, weekly_window_start, monthly_window_start, created_at, updated_at)" +
+			" daily_window_start, weekly_window_start, monthly_window_start, weekly_quota_generation, created_at, updated_at)" +
 			" VALUES ")
 
-	// $1 = now（共用）；每行 8 个 per-row 参，从 $2 起连续编号。
+	// $1 = now（共用）；每行 9 个 per-row 参，从 $2 起连续编号。
 	args := []any{now}
 	for i, s := range batch {
 		if i > 0 {
 			_, _ = sb.WriteString(",")
 		}
 		b := len(args) // 当前 per-row 第一个参数的 0-based 索引，实际占位符 = b+1
-		fmt.Fprintf(&sb, "($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$1,$1)",
-			b+1, b+2, b+3, b+4, b+5, b+6, b+7, b+8)
+		fmt.Fprintf(&sb, "($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$1,$1)",
+			b+1, b+2, b+3, b+4, b+5, b+6, b+7, b+8, b+9)
 		args = append(args,
 			s.UserID, s.Platform,
 			s.DailyUsageUSD, s.WeeklyUsageUSD, s.MonthlyUsageUSD,
-			s.DailyWindowStart, s.WeeklyWindowStart, s.MonthlyWindowStart,
+			s.DailyWindowStart, s.WeeklyWindowStart, s.MonthlyWindowStart, s.WeeklyGeneration,
 		)
 	}
 
 	_, _ = sb.WriteString(
 		" ON CONFLICT (user_id, platform) WHERE deleted_at IS NULL DO UPDATE SET" +
 			"  daily_usage_usd      = EXCLUDED.daily_usage_usd," +
-			"  weekly_usage_usd     = CASE WHEN user_platform_quotas.weekly_window_start IS NULL" +
-			" OR EXCLUDED.weekly_window_start > user_platform_quotas.weekly_window_start" +
+			"  weekly_usage_usd     = CASE WHEN EXCLUDED.weekly_quota_generation > user_platform_quotas.weekly_quota_generation" +
+			" OR (EXCLUDED.weekly_quota_generation = user_platform_quotas.weekly_quota_generation" +
+			" AND (user_platform_quotas.weekly_window_start IS NULL" +
+			" OR EXCLUDED.weekly_window_start > user_platform_quotas.weekly_window_start))" +
 			" THEN EXCLUDED.weekly_usage_usd" +
-			" WHEN EXCLUDED.weekly_window_start = user_platform_quotas.weekly_window_start" +
+			" WHEN EXCLUDED.weekly_quota_generation = user_platform_quotas.weekly_quota_generation" +
+			" AND EXCLUDED.weekly_window_start = user_platform_quotas.weekly_window_start" +
 			" THEN GREATEST(user_platform_quotas.weekly_usage_usd, EXCLUDED.weekly_usage_usd)" +
 			" ELSE user_platform_quotas.weekly_usage_usd END," +
 			"  monthly_usage_usd    = EXCLUDED.monthly_usage_usd," +
 			"  daily_window_start   = EXCLUDED.daily_window_start," +
-			"  weekly_window_start  = CASE WHEN user_platform_quotas.weekly_window_start IS NULL" +
-			" OR EXCLUDED.weekly_window_start > user_platform_quotas.weekly_window_start" +
+			"  weekly_window_start  = CASE WHEN EXCLUDED.weekly_quota_generation > user_platform_quotas.weekly_quota_generation" +
+			" OR (EXCLUDED.weekly_quota_generation = user_platform_quotas.weekly_quota_generation" +
+			" AND (user_platform_quotas.weekly_window_start IS NULL" +
+			" OR EXCLUDED.weekly_window_start > user_platform_quotas.weekly_window_start))" +
 			" THEN EXCLUDED.weekly_window_start ELSE user_platform_quotas.weekly_window_start END," +
+			"  weekly_quota_generation = GREATEST(user_platform_quotas.weekly_quota_generation, EXCLUDED.weekly_quota_generation)," +
+			"  weekly_reserved_generation = GREATEST(user_platform_quotas.weekly_reserved_generation, EXCLUDED.weekly_quota_generation)," +
 			"  monthly_window_start = EXCLUDED.monthly_window_start," +
 			"  updated_at           = EXCLUDED.updated_at")
 	return sb.String(), args

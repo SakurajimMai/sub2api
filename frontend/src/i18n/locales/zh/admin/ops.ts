@@ -575,7 +575,7 @@ export default {
       },
       quotaResetLinks: {
         title: 'OpenAI 周额度联动',
-        description: '监测所选 Pro 账号的官方七天窗口；无论按时还是提前重置，只要官方重置时间推进，就清零目标分组已有的 OpenAI 周额度。',
+        description: '监测所选 Pro 账号的官方七天窗口；检测到新周窗口，或已授权重置回执确认同一周窗口恢复时，才清零目标分组已有的 OpenAI 周额度。',
         create: '新建联动',
         createTitle: '新建额度联动',
         editTitle: '编辑额度联动',
@@ -592,9 +592,13 @@ export default {
         checking: '检测中',
         checkFailed: '检测官方周额度失败',
         baselinePending: '尚未建立基线',
-        baselineHint: '首次检测只记录当前官方重置时间作为基线，不会清零用户额度；此后官方重置时间只要向前推进就会触发。',
+        baselineHint: '首次检测只记录当前官方窗口作为基线，不会清零用户额度；之后检测到新周窗口，或已授权的官方重置回执确认同一周窗口恢复时，才会触发联动。',
+        lastVerified: '最近核验',
+        unsupported: '不支持原因',
         history: '最近执行记录',
         historyEmpty: '暂无执行记录',
+        evidenceHistory: '重置证据',
+        evidenceEmpty: '暂无重置候选或确认事件',
         counts: '命中 {matched} / 重置 {reset} / 跳过 {skipped}',
         table: {
           rule: '规则',
@@ -612,7 +616,28 @@ export default {
           baseline: '已建立当前官方窗口基线，本次未重置用户额度',
           unchanged: '官方窗口未发生变化',
           stale: '检测到旧窗口，已忽略',
-          triggered: '检测到新的官方窗口，用户周额度已联动重置'
+          triggered: '检测到新的官方窗口，用户周额度已联动重置',
+          identity_changed: '检测到账户身份变化，已重新建立基线，本次未重置用户额度'
+        },
+        zeroReasons: {
+          no_group_users: '目标分组没有活跃用户，本次无需重置',
+          no_platform_quota: '目标用户没有 OpenAI 平台额度记录，本次未创建或修改额度',
+          duplicate_or_already_applied: '该事件对目标用户已处理，本次未重复重置'
+        },
+        stages: {
+          binding: '绑定校验',
+          credentials: '凭据获取',
+          upstream_query: '上游查询',
+          response_parse: '响应解析',
+          database: '数据库更新',
+          redis_sync: '缓存同步'
+        },
+        reasons: {
+          OPENAI_QUOTA_REAUTH_REQUIRED: '上游账户需要重新授权',
+          OPENAI_QUOTA_RATE_LIMITED: '上游查询受到限流',
+          OPENAI_WEEKLY_QUOTA_DATABASE_FAILED: '本地数据库更新失败',
+          OPENAI_WEEKLY_QUOTA_CACHE_PREPARE_FAILED: '缓存代次准备失败',
+          OPENAI_WEEKLY_QUOTA_CACHE_FINALIZE_FAILED: '缓存补偿尚未完成'
         },
         status: {
           pending: '等待执行',
@@ -620,6 +645,23 @@ export default {
           succeeded: '已完成',
           retryable_failed: '等待重试',
           permanent_failed: '执行失败'
+        },
+        eventStatus: {
+          candidate: '待确认',
+          confirmed: '已确认',
+          rejected: '已忽略'
+        },
+        eventReasons: {
+          identity_changed: '上游账户身份已变化，旧事件未执行',
+          source_account_not_supported: '上游账户已不再满足 OpenAI Pro 联动条件',
+          confirmation_expired: '重置候选在保护期限内未获得确认',
+          weekly_window_advanced_without_confirmation: '周窗口已前进，但本事件缺少同窗口确认',
+          stale_weekly_snapshot: '周额度快照已过期，事件未执行',
+          weekly_usage_unknown: '周使用率字段未知，未触发联动',
+          weekly_window_unavailable: '未获得有效周窗口，未触发联动',
+          five_hour_only: '仅 5 小时窗口恢复，未重置周额度',
+          weekly_reset_not_confirmed: '缺少可靠周恢复证据，未触发联动',
+          no_windows_reset: '官方回执未确认任何窗口恢复'
         }
       },
       runtime: {

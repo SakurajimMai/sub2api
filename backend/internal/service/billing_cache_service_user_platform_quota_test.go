@@ -296,6 +296,26 @@ func TestCheckUserPlatformQuotaEligibility_ZeroLimitImmediateBlock(t *testing.T)
 	}
 }
 
+func TestCheckUserPlatformQuotaEligibility_UsesPendingWeeklyGenerationUsage(t *testing.T) {
+	weeklyLimit := 1.0
+	weekStart := timezone.StartOfWeek(time.Now())
+	repo := &fakeQuotaRepo{rec: &UserPlatformQuotaRecord{UserID: 1, Platform: "openai", WeeklyLimitUSD: &weeklyLimit}}
+	cache := &fakeFullCache{entry: &UserPlatformQuotaCacheEntry{
+		WeeklyUsageUSD:          0,
+		WeeklyGeneration:        1,
+		WeeklyPendingGeneration: 2,
+		WeeklyPendingUsageUSD:   1.25,
+		WeeklyLimitUSD:          &weeklyLimit,
+		WeeklyWindowStart:       &weekStart,
+		SchemaVersion:           UserPlatformQuotaCacheSchemaV2,
+	}}
+	s := newServiceForPreflight(t, repo, cache)
+	err := s.checkUserPlatformQuotaEligibility(context.Background(), 1, "openai")
+	if !errors.Is(err, ErrUserPlatformWeeklyQuotaExhausted) {
+		t.Fatalf("pending generation usage must enforce the weekly limit, got %v", err)
+	}
+}
+
 func TestCheckUserPlatformQuotaEligibility_NoRecordMeansUnlimited(t *testing.T) {
 	repo := &fakeQuotaRepo{rec: nil}
 	cache := &fakeFullCache{}

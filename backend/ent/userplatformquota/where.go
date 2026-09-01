@@ -110,6 +110,16 @@ func MonthlyUsageUsd(v float64) predicate.UserPlatformQuota {
 	return predicate.UserPlatformQuota(sql.FieldEQ(FieldMonthlyUsageUsd, v))
 }
 
+// WeeklyQuotaGeneration applies equality check predicate on the "weekly_quota_generation" field. It's identical to WeeklyQuotaGenerationEQ.
+func WeeklyQuotaGeneration(v int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldEQ(FieldWeeklyQuotaGeneration, v))
+}
+
+// WeeklyReservedGeneration applies equality check predicate on the "weekly_reserved_generation" field. It's identical to WeeklyReservedGenerationEQ.
+func WeeklyReservedGeneration(v int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldEQ(FieldWeeklyReservedGeneration, v))
+}
+
 // DailyWindowStart applies equality check predicate on the "daily_window_start" field. It's identical to DailyWindowStartEQ.
 func DailyWindowStart(v time.Time) predicate.UserPlatformQuota {
 	return predicate.UserPlatformQuota(sql.FieldEQ(FieldDailyWindowStart, v))
@@ -608,6 +618,86 @@ func MonthlyUsageUsdLT(v float64) predicate.UserPlatformQuota {
 // MonthlyUsageUsdLTE applies the LTE predicate on the "monthly_usage_usd" field.
 func MonthlyUsageUsdLTE(v float64) predicate.UserPlatformQuota {
 	return predicate.UserPlatformQuota(sql.FieldLTE(FieldMonthlyUsageUsd, v))
+}
+
+// WeeklyQuotaGenerationEQ applies the EQ predicate on the "weekly_quota_generation" field.
+func WeeklyQuotaGenerationEQ(v int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldEQ(FieldWeeklyQuotaGeneration, v))
+}
+
+// WeeklyQuotaGenerationNEQ applies the NEQ predicate on the "weekly_quota_generation" field.
+func WeeklyQuotaGenerationNEQ(v int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldNEQ(FieldWeeklyQuotaGeneration, v))
+}
+
+// WeeklyQuotaGenerationIn applies the In predicate on the "weekly_quota_generation" field.
+func WeeklyQuotaGenerationIn(vs ...int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldIn(FieldWeeklyQuotaGeneration, vs...))
+}
+
+// WeeklyQuotaGenerationNotIn applies the NotIn predicate on the "weekly_quota_generation" field.
+func WeeklyQuotaGenerationNotIn(vs ...int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldNotIn(FieldWeeklyQuotaGeneration, vs...))
+}
+
+// WeeklyQuotaGenerationGT applies the GT predicate on the "weekly_quota_generation" field.
+func WeeklyQuotaGenerationGT(v int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldGT(FieldWeeklyQuotaGeneration, v))
+}
+
+// WeeklyQuotaGenerationGTE applies the GTE predicate on the "weekly_quota_generation" field.
+func WeeklyQuotaGenerationGTE(v int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldGTE(FieldWeeklyQuotaGeneration, v))
+}
+
+// WeeklyQuotaGenerationLT applies the LT predicate on the "weekly_quota_generation" field.
+func WeeklyQuotaGenerationLT(v int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldLT(FieldWeeklyQuotaGeneration, v))
+}
+
+// WeeklyQuotaGenerationLTE applies the LTE predicate on the "weekly_quota_generation" field.
+func WeeklyQuotaGenerationLTE(v int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldLTE(FieldWeeklyQuotaGeneration, v))
+}
+
+// WeeklyReservedGenerationEQ applies the EQ predicate on the "weekly_reserved_generation" field.
+func WeeklyReservedGenerationEQ(v int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldEQ(FieldWeeklyReservedGeneration, v))
+}
+
+// WeeklyReservedGenerationNEQ applies the NEQ predicate on the "weekly_reserved_generation" field.
+func WeeklyReservedGenerationNEQ(v int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldNEQ(FieldWeeklyReservedGeneration, v))
+}
+
+// WeeklyReservedGenerationIn applies the In predicate on the "weekly_reserved_generation" field.
+func WeeklyReservedGenerationIn(vs ...int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldIn(FieldWeeklyReservedGeneration, vs...))
+}
+
+// WeeklyReservedGenerationNotIn applies the NotIn predicate on the "weekly_reserved_generation" field.
+func WeeklyReservedGenerationNotIn(vs ...int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldNotIn(FieldWeeklyReservedGeneration, vs...))
+}
+
+// WeeklyReservedGenerationGT applies the GT predicate on the "weekly_reserved_generation" field.
+func WeeklyReservedGenerationGT(v int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldGT(FieldWeeklyReservedGeneration, v))
+}
+
+// WeeklyReservedGenerationGTE applies the GTE predicate on the "weekly_reserved_generation" field.
+func WeeklyReservedGenerationGTE(v int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldGTE(FieldWeeklyReservedGeneration, v))
+}
+
+// WeeklyReservedGenerationLT applies the LT predicate on the "weekly_reserved_generation" field.
+func WeeklyReservedGenerationLT(v int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldLT(FieldWeeklyReservedGeneration, v))
+}
+
+// WeeklyReservedGenerationLTE applies the LTE predicate on the "weekly_reserved_generation" field.
+func WeeklyReservedGenerationLTE(v int64) predicate.UserPlatformQuota {
+	return predicate.UserPlatformQuota(sql.FieldLTE(FieldWeeklyReservedGeneration, v))
 }
 
 // DailyWindowStartEQ applies the EQ predicate on the "daily_window_start" field.

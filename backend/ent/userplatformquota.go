@@ -40,6 +40,10 @@ type UserPlatformQuota struct {
 	WeeklyUsageUsd float64 `json:"weekly_usage_usd,omitempty"`
 	// MonthlyUsageUsd holds the value of the "monthly_usage_usd" field.
 	MonthlyUsageUsd float64 `json:"monthly_usage_usd,omitempty"`
+	// WeeklyQuotaGeneration holds the value of the "weekly_quota_generation" field.
+	WeeklyQuotaGeneration int64 `json:"weekly_quota_generation,omitempty"`
+	// WeeklyReservedGeneration holds the value of the "weekly_reserved_generation" field.
+	WeeklyReservedGeneration int64 `json:"weekly_reserved_generation,omitempty"`
 	// DailyWindowStart holds the value of the "daily_window_start" field.
 	DailyWindowStart *time.Time `json:"daily_window_start,omitempty"`
 	// WeeklyWindowStart holds the value of the "weekly_window_start" field.
@@ -79,7 +83,7 @@ func (*UserPlatformQuota) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case userplatformquota.FieldDailyLimitUsd, userplatformquota.FieldWeeklyLimitUsd, userplatformquota.FieldMonthlyLimitUsd, userplatformquota.FieldDailyUsageUsd, userplatformquota.FieldWeeklyUsageUsd, userplatformquota.FieldMonthlyUsageUsd:
 			values[i] = new(sql.NullFloat64)
-		case userplatformquota.FieldID, userplatformquota.FieldUserID:
+		case userplatformquota.FieldID, userplatformquota.FieldUserID, userplatformquota.FieldWeeklyQuotaGeneration, userplatformquota.FieldWeeklyReservedGeneration:
 			values[i] = new(sql.NullInt64)
 		case userplatformquota.FieldPlatform:
 			values[i] = new(sql.NullString)
@@ -175,6 +179,18 @@ func (_m *UserPlatformQuota) assignValues(columns []string, values []any) error 
 				return fmt.Errorf("unexpected type %T for field monthly_usage_usd", values[i])
 			} else if value.Valid {
 				_m.MonthlyUsageUsd = value.Float64
+			}
+		case userplatformquota.FieldWeeklyQuotaGeneration:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field weekly_quota_generation", values[i])
+			} else if value.Valid {
+				_m.WeeklyQuotaGeneration = value.Int64
+			}
+		case userplatformquota.FieldWeeklyReservedGeneration:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field weekly_reserved_generation", values[i])
+			} else if value.Valid {
+				_m.WeeklyReservedGeneration = value.Int64
 			}
 		case userplatformquota.FieldDailyWindowStart:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -278,6 +294,12 @@ func (_m *UserPlatformQuota) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("monthly_usage_usd=")
 	builder.WriteString(fmt.Sprintf("%v", _m.MonthlyUsageUsd))
+	builder.WriteString(", ")
+	builder.WriteString("weekly_quota_generation=")
+	builder.WriteString(fmt.Sprintf("%v", _m.WeeklyQuotaGeneration))
+	builder.WriteString(", ")
+	builder.WriteString("weekly_reserved_generation=")
+	builder.WriteString(fmt.Sprintf("%v", _m.WeeklyReservedGeneration))
 	builder.WriteString(", ")
 	if v := _m.DailyWindowStart; v != nil {
 		builder.WriteString("daily_window_start=")

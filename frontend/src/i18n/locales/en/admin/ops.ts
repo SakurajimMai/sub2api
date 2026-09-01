@@ -575,7 +575,7 @@ export default {
       },
       quotaResetLinks: {
         title: 'OpenAI Weekly Quota Links',
-        description: 'Monitor the official seven-day window of a selected Pro account. Scheduled or early resets both clear existing OpenAI weekly usage for users in the target group.',
+        description: 'Monitor the official seven-day window of a selected Pro account. A new weekly window, or an authorized reset receipt confirming recovery in the same window, clears existing OpenAI weekly usage for users in the target group.',
         create: 'Create Link',
         createTitle: 'Create Quota Link',
         editTitle: 'Edit Quota Link',
@@ -592,9 +592,13 @@ export default {
         checking: 'Checking',
         checkFailed: 'Failed to check the official weekly quota',
         baselinePending: 'Baseline not established',
-        baselineHint: 'The first check only records the current official reset time as a baseline and does not clear user quota. Any later forward change triggers the link.',
+        baselineHint: 'The first check only records the current official window as a baseline and does not clear user quota. A new weekly window or an authorized reset receipt confirming recovery in the same window triggers the link.',
+        lastVerified: 'Last verified',
+        unsupported: 'Unsupported',
         history: 'Recent Executions',
         historyEmpty: 'No executions yet',
+        evidenceHistory: 'Reset Evidence',
+        evidenceEmpty: 'No reset candidates or confirmed events',
         counts: 'Matched {matched} / Reset {reset} / Skipped {skipped}',
         table: {
           rule: 'Rule',
@@ -612,7 +616,28 @@ export default {
           baseline: 'Current official window recorded as the baseline; no user quota was reset',
           unchanged: 'The official window has not changed',
           stale: 'An older window was detected and ignored',
-          triggered: 'A new official window was detected and user weekly quota was reset'
+          triggered: 'A new official window was detected and user weekly quota was reset',
+          identity_changed: 'The upstream account identity changed. A new baseline was created without resetting user quota'
+        },
+        zeroReasons: {
+          no_group_users: 'The target group has no active users; no reset was needed',
+          no_platform_quota: 'Target users have no OpenAI platform quota rows; no quota was created or changed',
+          duplicate_or_already_applied: 'This event was already applied to the target users; no duplicate reset was performed'
+        },
+        stages: {
+          binding: 'Binding validation',
+          credentials: 'Credential acquisition',
+          upstream_query: 'Upstream query',
+          response_parse: 'Response parsing',
+          database: 'Database update',
+          redis_sync: 'Cache synchronization'
+        },
+        reasons: {
+          OPENAI_QUOTA_REAUTH_REQUIRED: 'The upstream account must be reauthorized',
+          OPENAI_QUOTA_RATE_LIMITED: 'The upstream quota endpoint is rate limited',
+          OPENAI_WEEKLY_QUOTA_DATABASE_FAILED: 'The local database update failed',
+          OPENAI_WEEKLY_QUOTA_CACHE_PREPARE_FAILED: 'The cache generation switch could not be prepared',
+          OPENAI_WEEKLY_QUOTA_CACHE_FINALIZE_FAILED: 'The cache compensation is still incomplete'
         },
         status: {
           pending: 'Pending',
@@ -620,6 +645,23 @@ export default {
           succeeded: 'Succeeded',
           retryable_failed: 'Retry Pending',
           permanent_failed: 'Failed'
+        },
+        eventStatus: {
+          candidate: 'Pending Confirmation',
+          confirmed: 'Confirmed',
+          rejected: 'Ignored'
+        },
+        eventReasons: {
+          identity_changed: 'The upstream account identity changed; the old event was not applied',
+          source_account_not_supported: 'The upstream account no longer meets the OpenAI Pro linkage requirements',
+          confirmation_expired: 'The reset candidate was not confirmed within the protection window',
+          weekly_window_advanced_without_confirmation: 'The weekly window advanced without confirmation for this event',
+          stale_weekly_snapshot: 'The weekly quota snapshot was stale; the event was not applied',
+          weekly_usage_unknown: 'Weekly usage is unknown; linkage was not triggered',
+          weekly_window_unavailable: 'No valid weekly window was available',
+          five_hour_only: 'Only the five-hour window recovered; weekly quota was not reset',
+          weekly_reset_not_confirmed: 'Reliable weekly reset evidence was not available',
+          no_windows_reset: 'The official result did not confirm a reset window'
         }
       },
       runtime: {

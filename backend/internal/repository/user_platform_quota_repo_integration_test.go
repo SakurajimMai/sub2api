@@ -72,6 +72,38 @@ func TestUserPlatformQuotaRepository_BulkInsertInitial_Empty(t *testing.T) {
 	require.NoError(t, repo.BulkInsertInitial(txCtx, []UserPlatformQuotaRecord{}))
 }
 
+func TestUserPlatformQuotaRepository_WeeklyGenerationRejectsOldUsage(t *testing.T) {
+	ctx := context.Background()
+	userID := mustCreateUserForQuota(t, integrationEntClient)
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM user_platform_quotas WHERE user_id=$1", userID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM users WHERE id=$1", userID)
+	})
+	repo := NewUserPlatformQuotaRepository(integrationEntClient).(*userPlatformQuotaRepository)
+	now := time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)
+	require.NoError(t, repo.BulkInsertInitial(ctx, []UserPlatformQuotaRecord{{UserID: userID, Platform: service.PlatformOpenAI}}))
+
+	require.NoError(t, repo.IncrementUsageWithGeneration(ctx, userID, service.PlatformOpenAI, 0.75, 2, now))
+	require.NoError(t, repo.IncrementUsageWithGeneration(ctx, userID, service.PlatformOpenAI, 99, 1, now.Add(time.Minute)))
+	require.NoError(t, repo.IncrementUsageWithGeneration(ctx, userID, service.PlatformOpenAI, 0.25, 2, now.Add(2*time.Minute)))
+
+	record, err := repo.GetByUserPlatform(ctx, userID, service.PlatformOpenAI)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), record.WeeklyGeneration)
+	require.InDelta(t, 1.0, record.WeeklyUsageUSD, 1e-9, "旧代次成本不能恢复周用量")
+
+	require.NoError(t, repo.BatchSnapshotUsage(ctx, []UserPlatformQuotaSnapshot{{
+		UserID: userID, Platform: service.PlatformOpenAI,
+		DailyUsageUSD: 100, WeeklyUsageUSD: 100, MonthlyUsageUSD: 100,
+		WeeklyGeneration: 1,
+		DailyWindowStart: now, WeeklyWindowStart: now, MonthlyWindowStart: now,
+	}}, now.Add(3*time.Minute)))
+	record, err = repo.GetByUserPlatform(ctx, userID, service.PlatformOpenAI)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), record.WeeklyGeneration)
+	require.InDelta(t, 1.0, record.WeeklyUsageUSD, 1e-9, "旧代次 flusher 快照不能覆盖新代次")
+}
+
 // TestUserPlatformQuotaRepository_BulkInsertInitial_GrokAllowed 回归迁移 157：
 // grok 平台必须能写入 user_platform_quotas（CHECK 约束已含 grok）。
 // 历史 bug：grok 不在约束内 → 注册写默认配额违约 → 注册事务 aborted → 自助注册 500/404。

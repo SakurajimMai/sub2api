@@ -171,6 +171,26 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 	executor OAuthRefreshExecutor,
 	refreshWindow time.Duration,
 ) (*OAuthRefreshResult, error) {
+	return api.refresh(ctx, account, executor, refreshWindow, false)
+}
+
+// ForceRefresh 在上游明确拒绝当前凭据后复用同一刷新锁强制轮换一次。
+// 调用方必须自行限制尝试次数；PAT 与签名身份不得调用此入口。
+func (api *OAuthRefreshAPI) ForceRefresh(
+	ctx context.Context,
+	account *Account,
+	executor OAuthRefreshExecutor,
+) (*OAuthRefreshResult, error) {
+	return api.refresh(ctx, account, executor, 0, true)
+}
+
+func (api *OAuthRefreshAPI) refresh(
+	ctx context.Context,
+	account *Account,
+	executor OAuthRefreshExecutor,
+	refreshWindow time.Duration,
+	force bool,
+) (*OAuthRefreshResult, error) {
 	if api == nil || api.accountRepo == nil {
 		return nil, errors.New("oauth refresh account repository is not configured")
 	}
@@ -236,6 +256,12 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 			return nil, withGrokCredentialFailureSnapshot(eligibilityErr, freshAccount)
 		}
 	}
+	if force && (freshAccount.GetCredentialAsInt64("_token_version") != account.GetCredentialAsInt64("_token_version") ||
+		freshAccount.GetOpenAIAccessToken() != account.GetOpenAIAccessToken() ||
+		freshAccount.GetOpenAIRefreshToken() != account.GetOpenAIRefreshToken() ||
+		codexAccountIdentityNamespace(freshAccount) != codexAccountIdentityNamespace(account)) {
+		return &OAuthRefreshResult{Account: freshAccount}, nil
+	}
 	if !executor.CanRefresh(freshAccount) {
 		if requestPath && freshAccount.IsGrokOAuth() && strings.TrimSpace(freshAccount.GetGrokRefreshToken()) == "" {
 			return nil, withGrokCredentialFailureSnapshot(errGrokOAuthRefreshTokenMissing, freshAccount)
@@ -247,7 +273,7 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 	}
 
 	// 3. 二次检查是否仍需刷新（另一条路径可能已刷新）
-	if !executor.NeedsRefresh(freshAccount, refreshWindow) {
+	if !force && !executor.NeedsRefresh(freshAccount, refreshWindow) {
 		return &OAuthRefreshResult{
 			Account: freshAccount,
 		}, nil

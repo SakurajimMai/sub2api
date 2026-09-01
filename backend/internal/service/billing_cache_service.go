@@ -706,22 +706,37 @@ func (s *BillingCacheService) QueueUpdateAPIKeyRateLimitUsage(apiKeyID int64, co
 // 写延迟通常 < 1ms（本地 Redis），换取 quota 视图实时性的取舍合理。
 //
 // Redis 写失败用 ALERT 级 log；DB 持久化由 caller 单独 goroutine 兜底（gateway_service.go）。
-func (s *BillingCacheService) IncrementUserPlatformQuotaUsage(userID int64, platform string, cost float64) {
+type userPlatformQuotaGenerationCache interface {
+	IncrUserPlatformQuotaUsageCacheWithGeneration(ctx context.Context, userID int64, platform string, cost float64, ttl time.Duration, markDirty bool) (int64, error)
+}
+
+func (s *BillingCacheService) IncrementUserPlatformQuotaUsage(userID int64, platform string, cost float64) int64 {
 	if s.cache == nil {
-		return
+		return -1
 	}
 	if platform == "" || cost <= 0 {
-		return
+		return -1
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cacheWriteTimeout)
 	defer cancel()
 	ttl := time.Duration(s.cfg.Billing.UserPlatformQuotaCacheTTLSeconds) * time.Second
 	markDirty := s.cfg.Database.UserPlatformQuotaFlusherEnabled
+	if generationCache, ok := s.cache.(userPlatformQuotaGenerationCache); ok {
+		generation, err := generationCache.IncrUserPlatformQuotaUsageCacheWithGeneration(ctx, userID, platform, cost, ttl, markDirty)
+		if err != nil {
+			logger.LegacyPrintf("service.billing_cache",
+				"ALERT: incr user platform quota cache failed user=%d platform=%s cost=%f: %v",
+				userID, platform, cost, err)
+			return -1
+		}
+		return generation
+	}
 	if err := s.cache.IncrUserPlatformQuotaUsageCache(ctx, userID, platform, cost, ttl, markDirty); err != nil {
 		logger.LegacyPrintf("service.billing_cache",
 			"ALERT: incr user platform quota cache failed user=%d platform=%s cost=%f: %v",
 			userID, platform, cost, err)
 	}
+	return -1
 }
 
 // ============================================
@@ -1101,10 +1116,13 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 	}
 
 	// --- cache HIT with current schema → 直接用 entry，不查 DB ---
-	if cacheErr == nil && ok && entry != nil && entry.SchemaVersion == UserPlatformQuotaCacheSchemaV1 {
+	if cacheErr == nil && ok && entry != nil && entry.SchemaVersion == UserPlatformQuotaCacheSchemaV2 {
 		now := time.Now()
 		dailyUsage := entry.DailyUsageUSD
 		weeklyUsage := entry.WeeklyUsageUSD
+		if entry.WeeklyPendingGeneration > entry.WeeklyGeneration {
+			weeklyUsage = entry.WeeklyPendingUsageUSD
+		}
 		monthlyUsage := entry.MonthlyUsageUSD
 		// 若窗口已更新（DB 已重置但 cache 尚未失效）,将对应 usage 清零再做比较,
 		// 同时记录新窗口起点用于后续刷新 cache entry。
@@ -1149,7 +1167,11 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 				DailyUsageUSD:      dailyUsage,
 				WeeklyUsageUSD:     weeklyUsage,
 				MonthlyUsageUSD:    monthlyUsage,
-				SchemaVersion:      UserPlatformQuotaCacheSchemaV1,
+				SchemaVersion:      UserPlatformQuotaCacheSchemaV2,
+				WeeklyGeneration:   entry.WeeklyGeneration,
+				WeeklyPendingGeneration: entry.WeeklyPendingGeneration,
+				WeeklyPendingUsageUSD:   entry.WeeklyPendingUsageUSD,
+				WeeklyPendingEventID:    entry.WeeklyPendingEventID,
 				DailyLimitUSD:      entry.DailyLimitUSD,
 				WeeklyLimitUSD:     entry.WeeklyLimitUSD,
 				MonthlyLimitUSD:    entry.MonthlyLimitUSD,
@@ -1215,7 +1237,7 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 			startOfDay := timezone.StartOfDay(now)
 			startOfWeek := timezone.StartOfWeek(now)
 			sentinel := &UserPlatformQuotaCacheEntry{
-				SchemaVersion:      UserPlatformQuotaCacheSchemaV1,
+				SchemaVersion:      UserPlatformQuotaCacheSchemaV2,
 				DailyWindowStart:   &startOfDay,
 				WeeklyWindowStart:  &startOfWeek,
 				MonthlyWindowStart: &now,
@@ -1270,13 +1292,18 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 		DailyUsageUSD:      dailyUsage,
 		WeeklyUsageUSD:     weeklyUsage,
 		MonthlyUsageUSD:    monthlyUsage,
-		SchemaVersion:      UserPlatformQuotaCacheSchemaV1,
+		SchemaVersion:      UserPlatformQuotaCacheSchemaV2,
+		WeeklyGeneration:   rec.WeeklyGeneration,
 		DailyLimitUSD:      rec.DailyLimitUSD,
 		WeeklyLimitUSD:     rec.WeeklyLimitUSD,
 		MonthlyLimitUSD:    rec.MonthlyLimitUSD,
 		DailyWindowStart:   rec.DailyWindowStart,
 		WeeklyWindowStart:  rec.WeeklyWindowStart,
 		MonthlyWindowStart: rec.MonthlyWindowStart,
+	}
+	if rec.WeeklyReservedGeneration > rec.WeeklyGeneration {
+		newEntry.WeeklyPendingGeneration = rec.WeeklyReservedGeneration
+		newEntry.WeeklyPendingUsageUSD = 0
 	}
 	if s.cache != nil {
 		ttl := time.Duration(s.cfg.Billing.UserPlatformQuotaCacheTTLSeconds) * time.Second
