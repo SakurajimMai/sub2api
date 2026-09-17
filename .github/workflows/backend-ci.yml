@@ -86,3 +86,19 @@ jobs:
           version: v2.13.1
           args: --timeout=30m
           working-directory: backend
+
+  cleanup-runs:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Keep only the latest 10 workflow runs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP_COUNT: "10"
+        run: |
+          chmod +x .fork/cleanup-workflow-runs.sh
+          ./.fork/cleanup-workflow-runs.sh

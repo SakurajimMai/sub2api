@@ -244,3 +244,12 @@ jobs:
 
           echo "Mirrored ${TAG} and dispatched Release workflow."
           echo "Docker images will appear as sakurajiamai/sub2api:${TAG#v} and :latest when Release finishes."
+
+      - name: Keep only the latest 10 workflow runs
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP_COUNT: "10"
+        run: |
+          chmod +x .fork/cleanup-workflow-runs.sh
+          ./.fork/cleanup-workflow-runs.sh

@@ -62,6 +62,7 @@ Notes:
 - `GITHUB_TOKEN` tag pushes do not auto-trigger other workflows, so Release is started via `workflow_dispatch`.
 - Merge conflicts open a `[CONFLICTS]` PR instead of tagging.
 - Shares a concurrency lock with Sync Upstream (`fork-main-mutation`).
+- After every Mirror / Sync / CI push, [cleanup-workflow-runs.sh](./cleanup-workflow-runs.sh) keeps only the newest **10 runs per workflow** so the Actions tab does not accumulate hundreds of scheduled no-op runs.
 
 ## Manual commands
 

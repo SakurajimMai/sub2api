@@ -19,6 +19,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   # Shared with Mirror Upstream Release so both never mutate main concurrently
@@ -171,3 +172,12 @@ jobs:
           echo "::error::Upstream merge has non-workflow conflicts: ${{ steps.merge.outputs.conflict_files }}"
           echo "See the job summary for local resolution commands."
           exit 1
+
+      - name: Keep only the latest 10 workflow runs
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP_COUNT: "10"
+        run: |
+          chmod +x .fork/cleanup-workflow-runs.sh
+          ./.fork/cleanup-workflow-runs.sh

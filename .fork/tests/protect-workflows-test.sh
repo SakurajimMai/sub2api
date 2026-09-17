@@ -199,7 +199,12 @@ for workflow in \
   ".github/workflows/sync-upstream.yml"; do
   grep -Fq './.fork/merge-upstream-preserving-workflows.sh' "$ROOT/$workflow" \
     || fail "$workflow 未使用统一的 workflow 冲突恢复脚本"
+  grep -Fq './.fork/cleanup-workflow-runs.sh' "$ROOT/$workflow" \
+    || fail "$workflow 未在每次运行后清理旧 Actions runs"
 done
+
+grep -Fq './.fork/cleanup-workflow-runs.sh' "$ROOT/.github/workflows/backend-ci.yml" \
+  || fail "CI 未在 push 后清理旧 Actions runs"
 
 if grep -Fq 'gh pr create' "$ROOT/.github/workflows/mirror-upstream-release.yml"; then
   fail "mirror workflow 不应再创建无内容冲突 PR"
@@ -207,5 +212,25 @@ fi
 if grep -Fq 'git commit --allow-empty' "$ROOT/.github/workflows/sync-upstream.yml"; then
   fail "sync workflow 不应再创建空冲突分支"
 fi
+
+cleanup_script="$ROOT/.fork/cleanup-workflow-runs.sh"
+[[ -x "$cleanup_script" ]] || fail "缺少可执行的 .fork/cleanup-workflow-runs.sh"
+bash -n "$cleanup_script" || fail "cleanup-workflow-runs.sh 语法无效"
+
+select_ids() {
+  printf '%s' "$1" | bash "$cleanup_script" --select-from-json "$2" "${3:-}"
+}
+
+got="$(select_ids '[{"databaseId":1,"status":"completed"},{"databaseId":2,"status":"completed"},{"databaseId":3,"status":"completed"}]' 10)"
+[[ -z "$got" ]] || fail "少于保留数量时不应删除"
+
+got="$(select_ids '[{"databaseId":1,"status":"completed"},{"databaseId":2,"status":"completed"},{"databaseId":3,"status":"completed"}]' 2)"
+[[ "$got" == "3" ]] || fail "应删除超出保留窗口的旧 run，实际: ${got:-<empty>}"
+
+got="$(select_ids '[{"databaseId":1,"status":"in_progress"},{"databaseId":2,"status":"completed"},{"databaseId":3,"status":"queued"},{"databaseId":4,"status":"completed"}]' 2)"
+[[ "$got" == "4" ]] || fail "进行中的 run 即使落在窗口外也必须保留，实际: ${got:-<empty>}"
+
+got="$(select_ids '[{"databaseId":1,"status":"completed"},{"databaseId":2,"status":"completed"},{"databaseId":3,"status":"completed"}]' 2 3)"
+[[ -z "$got" ]] || fail "当前 GITHUB_RUN_ID 即使落在窗口外也必须保留，实际: ${got:-<empty>}"
 
 echo "PASS: 上游 workflow 变更被隔离，业务代码变更被保留"
