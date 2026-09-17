@@ -473,7 +473,7 @@ func (r *openAIWeeklyQuotaResetLinkRepository) ApplyObservedWeeklyWindow(ctx con
 		insertErr := tx.QueryRowContext(ctx, `INSERT INTO openai_weekly_quota_reset_execution_users
 			(execution_id, reset_event_id, user_id, platform, previous_generation, target_generation,
 			 quota_window_start, status, created_at, updated_at)
-			VALUES ($1,$2,$3,'openai',$4,$5,$6,'weekly_pending',$7,$7)
+			VALUES ($1::bigint,$2::text,$3::bigint,'openai',$4::bigint,$5::bigint,$6::timestamptz,'weekly_pending',$7::timestamptz,$7::timestamptz)
 			ON CONFLICT (reset_event_id, user_id, platform) DO NOTHING RETURNING id`,
 			executionID, o.ResetEventID, item.userID, item.generation, targetGeneration, quotaWindowStart, o.DetectedAt).Scan(&targetID)
 		if errors.Is(insertErr, sql.ErrNoRows) {
@@ -518,8 +518,8 @@ func (r *openAIWeeklyQuotaResetLinkRepository) ApplyObservedWeeklyWindow(ctx con
 	}
 	hasOutstandingTargets := outstandingTargets > 0
 	_, err = tx.ExecContext(ctx, `UPDATE openai_weekly_quota_reset_executions SET
-		matched_users=$1, reset_users=$2, skipped_users=$3, reset_user_ids=$4,
-		status=$5, stage=$6, completed_at=$7, updated_at=$8 WHERE id=$9`,
+		matched_users=$1::bigint, reset_users=$2::bigint, skipped_users=$3::bigint, reset_user_ids=$4::bigint[],
+		status=$5::text, stage=$6::text, completed_at=$7, updated_at=$8::timestamptz WHERE id=$9::bigint`,
 		result.MatchedUsers, len(result.ResetUserIDs), result.SkippedUsers, postgresInt64Array(result.ResetUserIDs),
 		func() string {
 			if !hasOutstandingTargets {
@@ -543,11 +543,11 @@ func (r *openAIWeeklyQuotaResetLinkRepository) ApplyObservedWeeklyWindow(ctx con
 		return result, err
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE openai_weekly_quota_reset_rules SET
-		last_observed_reset_at=$1, last_observed_window_seconds=$2,
-		last_observed_fetched_at=$3, last_run_at=$3, last_snapshot_event_id=$4,
-		source_identity_fingerprint=CASE WHEN $5<>'' THEN $5 ELSE source_identity_fingerprint END,
-		execution_status=$6, last_execution_success_at=CASE WHEN $6='succeeded' THEN $3 ELSE last_execution_success_at END,
-		last_error='', updated_at=$3 WHERE id=$7`,
+		last_observed_reset_at=$1::timestamptz, last_observed_window_seconds=$2::bigint,
+		last_observed_fetched_at=$3::timestamptz, last_run_at=$3::timestamptz, last_snapshot_event_id=$4::text,
+		source_identity_fingerprint=CASE WHEN $5::text<>'' THEN $5::text ELSE source_identity_fingerprint END,
+		execution_status=$6::text, last_execution_success_at=CASE WHEN $6::text='succeeded' THEN $3::timestamptz ELSE last_execution_success_at END,
+		last_error='', updated_at=$3::timestamptz WHERE id=$7::bigint`,
 		o.OfficialResetAt, o.OfficialWindowSeconds, o.DetectedAt, o.ResetEventID, o.Identity.Fingerprint,
 		func() string {
 			if !hasOutstandingTargets {
