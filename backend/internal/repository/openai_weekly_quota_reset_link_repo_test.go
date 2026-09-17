@@ -55,18 +55,18 @@ func TestOpenAIWeeklyQuotaResetLinkRepository_BaselineOnly(t *testing.T) {
 }
 
 func TestBatchSnapshotUsage_WeeklyWindowMonotonic(t *testing.T) {
-	sqlText, _ := buildUserPlatformQuotaSnapshotUpsert([]UserPlatformQuotaSnapshot{{
+	sqlText, _ := buildUserPlatformQuotaSnapshotUpdate([]UserPlatformQuotaSnapshot{{
 		UserID: 1, Platform: service.PlatformOpenAI, WeeklyGeneration: 3,
 	}}, time.Now())
 
 	require.Contains(t, sqlText,
-		"EXCLUDED.weekly_quota_generation > user_platform_quotas.weekly_quota_generation")
+		"v.weekly_quota_generation > q.weekly_quota_generation")
 	require.Contains(t, sqlText,
-		"EXCLUDED.weekly_quota_generation = user_platform_quotas.weekly_quota_generation")
+		"v.weekly_quota_generation = q.weekly_quota_generation")
 	require.Contains(t, sqlText,
-		"GREATEST(user_platform_quotas.weekly_usage_usd, EXCLUDED.weekly_usage_usd)")
+		"GREATEST(q.weekly_usage_usd, v.weekly_usage_usd)")
 	require.Contains(t, sqlText,
-		"weekly_quota_generation = GREATEST(user_platform_quotas.weekly_quota_generation, EXCLUDED.weekly_quota_generation)")
+		"weekly_quota_generation = GREATEST(q.weekly_quota_generation, v.weekly_quota_generation)")
 }
 
 func TestOpenAIWeeklyQuotaResetLinkRepository_RetryReplaysCacheOnly(t *testing.T) {

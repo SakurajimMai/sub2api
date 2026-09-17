@@ -188,7 +188,8 @@ func (s *UserPlatformQuotaUsageFlusher) flushOneBatch(parentCtx context.Context)
 	// 仓储层已防止旧周窗口回退，并在同一周窗口内用 GREATEST 防止旧快照降低周用量；
 	// 日/月窗口以及“在同一周窗口内强制清零”的管理操作仍可能被旧快照覆盖。
 	// 因 member 已被 SPOP,admin 侧 SREM/清脏标记无法拦截本批(故未做)。影响有限,暂列为已知取舍:
-	//   - UpsertForUser 改 limit,而本 UPSERT 不写 limit 列 → limit 配置不受影响;
+	//   - UpsertForUser 改 limit,而本 UPDATE 只写既有活跃行的 usage/window 列 → limit 配置不受影响,
+	//     被软删的行不会被本 UPDATE 复活或重建;
 	//   - ResetExpiredWindow 改 usage,但 preflight windowExpired 会在窗口真正过期时自愈重置,
 	//     仅"强制重置未过期窗口"且与本批精确交错时短暂失效;
 	//   - 低频 admin 操作 + 默认 flusher_enabled=false。彻底消除需 version OCC(DB 加 version 列条件 UPSERT),
@@ -201,11 +202,9 @@ func (s *UserPlatformQuotaUsageFlusher) flushOneBatch(parentCtx context.Context)
 
 	if writeErr != nil {
 		if errors.Is(writeErr, ErrUserPlatformQuotaFKViolation) {
-			// 注意:PG FK violation 是整条 INSERT 回滚 → 整批(含同批正常用户)均未写入 DB,
-			// 且这些 key 已被 SPOP 出脏集、此处不 Readd。活跃 key 会在下次请求重新 SADD,
-			// flusher 读 Redis 当前累计绝对值刷库即自愈;低活跃 key 这轮 DB usage 偏低
-			// (Redis 仍是 enforcement 权威,不受影响;DB 仅展示)。已删用户边角的接受取舍,不做逐行重试。
-			// FK 违反：用户已被删除，直接丢弃不 Readd
+			// FK 违反表示对应用户已不存在,快照无处可落:整批丢弃、不 Readd。
+			// 同批其它 key 会在下次请求重新 SADD,flusher 读 Redis 当前累计绝对值刷库即自愈
+			// (Redis 仍是 enforcement 权威;DB 仅展示)。
 			s.metrics.FlushFKViolationTotal.Add(1)
 			s.metrics.FlushErrorTotal.Add(1)
 			logger.LegacyPrintf("quota_flusher", "[QuotaFlusher] FK violation (dropped %d snaps): %v", len(snaps), writeErr)
