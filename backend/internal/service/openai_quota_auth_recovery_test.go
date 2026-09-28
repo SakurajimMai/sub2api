@@ -168,7 +168,7 @@ func newQuotaAuthService(
 	srv *httptest.Server,
 ) (*OpenAIQuotaService, *OpenAITokenProvider) {
 	tokenProvider := NewOpenAITokenProvider(repo, cache, nil)
-	return NewOpenAIQuotaService(repo, nil, tokenProvider, newQuotaRedirectingFactory(srv)), tokenProvider
+	return NewOpenAIQuotaService(repo, nil, tokenProvider, newQuotaRedirectingFactory(srv), nil), tokenProvider
 }
 
 func writeQuotaUsageSuccess(w http.ResponseWriter, accountID, userID string) {

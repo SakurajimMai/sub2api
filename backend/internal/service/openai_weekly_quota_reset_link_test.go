@@ -183,6 +183,7 @@ func TestQueryUsageSnapshotSkipsResetCreditEndpoint(t *testing.T) {
 		nil,
 		NewOpenAITokenProvider(repo, tokenCache, nil),
 		newQuotaRedirectingFactory(server),
+		nil,
 	)
 	usage, err := service.QueryUsageSnapshot(context.Background(), account.ID)
 	require.NoError(t, err)
