@@ -15,6 +15,7 @@ jobs:
       - name: Check deployment scripts
         run: |
           /bin/bash .fork/tests/protect-workflows-test.sh
+          /bin/bash .fork/tests/auto-merge-test.sh
           /bin/bash -n deploy/apple-container.sh
           /bin/bash deploy/tests/apple-container-test.sh
           /bin/sh deploy/tests/docker-compose-security-test.sh

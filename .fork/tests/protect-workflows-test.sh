@@ -194,11 +194,42 @@ if git -C "$business_conflict_tmp" diff --name-only --diff-filter=U \
 fi
 git -C "$business_conflict_tmp" merge --abort
 
+grep -Fq '.fork/merge-upstream-preserving-workflows.sh' "$ROOT/.fork/merge-upstream-auto.sh" \
+  || fail "merge-upstream-auto.sh 必须通过统一的 workflow 冲突恢复脚本执行合并"
+
+# AI 合并的沙箱约束：不加载仓库配置、未授权即拒绝、AI 可执行的命令一律清空环境变量
+ai_script="$ROOT/.fork/ai-resolve-conflicts.sh"
+for required in '--bare' '--setting-sources user' '--strict-mcp-config' \
+  '--permission-mode dontAsk' 'exec env -i' 'Edit(.fork/**)' 'Edit(.git/**)' \
+  'Edit(.github/**)' 'unset DEEPSEEK_API_KEY'; do
+  grep -Fq -- "$required" "$ai_script" || fail "ai-resolve-conflicts.sh 缺少安全约束: $required"
+done
+if grep -Eq -- '--dangerously-skip-permissions|bypassPermissions|"Bash"' "$ai_script"; then
+  fail "ai-resolve-conflicts.sh 不得放开 AI 的 shell/权限限制"
+fi
+grep -Fq 'unset DEEPSEEK_API_KEY' "$ROOT/.fork/merge-upstream-auto.sh" \
+  || fail "merge-upstream-auto.sh 不得把 DEEPSEEK_API_KEY 导出给校验等子进程"
+
 for workflow in \
   ".github/workflows/mirror-upstream-release.yml" \
   ".github/workflows/sync-upstream.yml"; do
-  grep -Fq './.fork/merge-upstream-preserving-workflows.sh' "$ROOT/$workflow" \
-    || fail "$workflow 未使用统一的 workflow 冲突恢复脚本"
+  grep -Fq './.fork/merge-upstream-auto.sh' "$ROOT/$workflow" \
+    || fail "$workflow 未使用带校验关卡的自动合并脚本"
+  grep -Fq 'persist-credentials: false' "$ROOT/$workflow" \
+    || fail "$workflow 的 checkout 不得持久化 token（校验关卡会执行上游代码）"
+
+  key_count="$(grep -Fc 'secrets.DEEPSEEK_API_KEY' "$ROOT/$workflow" || true)"
+  [[ "$key_count" -eq 1 ]] || fail "$workflow 中 DEEPSEEK_API_KEY 只能注入一个步骤，实际出现 $key_count 次"
+  key_step="$(awk '
+    /^      - name:/ { if (block ~ /secrets\.DEEPSEEK_API_KEY/) print block; block = "" }
+    { block = block $0 "\n" }
+    END { if (block ~ /secrets\.DEEPSEEK_API_KEY/) print block }
+  ' "$ROOT/$workflow")"
+  grep -Fq './.fork/merge-upstream-auto.sh' <<<"$key_step" \
+    || fail "$workflow 的 DEEPSEEK_API_KEY 必须只交给执行 merge-upstream-auto.sh 的步骤"
+  if grep -Eq 'GH_TOKEN|GITHUB_TOKEN' <<<"$key_step"; then
+    fail "$workflow 中持有 DEEPSEEK_API_KEY 的步骤不得同时持有 GitHub token"
+  fi
   grep -Fq './.fork/cleanup-workflow-runs.sh' "$ROOT/$workflow" \
     || fail "$workflow 未在每次运行后清理旧 Actions runs"
 done

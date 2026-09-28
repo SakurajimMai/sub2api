@@ -1,9 +1,12 @@
 name: Sync Upstream
 
 # Merges Wei-Shaw/sub2api into this fork's main, then re-applies fork branding.
-# Clean merges push straight to main (no PR required — GITHUB_TOKEN often cannot
-# create PRs when workflow permissions are restricted).
-# Non-workflow conflicts are reported in the job summary for manual resolution.
+# .fork/merge-upstream-auto.sh resolves mechanical conflicts (generated code,
+# VERSION, go.sum), hands the rest — and semantic breakage — to DeepSeek via
+# Claude Code when the DEEPSEEK_API_KEY secret is set, and runs the build/test gate
+# before anything is pushed (no PR — GITHUB_TOKEN often cannot create PRs when
+# workflow permissions are restricted).
+# Unresolvable conflicts or a failed gate fail the job and leave main untouched.
 
 on:
   schedule:
@@ -29,12 +32,15 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     steps:
       - name: Checkout fork
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # The verify gate executes upstream code: keep the token off disk and
+          # hand it only to the final push step.
+          persist-credentials: false
 
       - name: Configure git
         run: |
@@ -91,87 +97,89 @@ jobs:
           echo "Upstream is ahead by ${{ steps.delta.outputs.behind }} commit(s)."
           git log --oneline HEAD..upstream/main | head -50
 
-      - name: Merge upstream into main and apply overlay
+      - name: Set up Go
+        if: >
+          steps.delta.outputs.already_up_to_date == 'false' &&
+          !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true)
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Setup pnpm
+        if: >
+          steps.delta.outputs.already_up_to_date == 'false' &&
+          !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true)
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        if: >
+          steps.delta.outputs.already_up_to_date == 'false' &&
+          !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true)
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Merge upstream into main, verify and apply overlay
         id: merge
         if: >
           steps.delta.outputs.already_up_to_date == 'false' &&
           !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true)
+        env:
+          # Only this step sees the key; merge-upstream-auto.sh hands it to the AI
+          # process alone (never to the verify gate, which executes upstream code).
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          AI_MERGE_MODEL: ${{ vars.AI_MERGE_MODEL || 'deepseek-v4-pro' }}
         run: |
           set -euo pipefail
           UPSTREAM_SHA="${{ steps.delta.outputs.upstream_sha }}"
-          BEHIND="${{ steps.delta.outputs.behind }}"
 
           git checkout main
           git reset --hard origin/main
-
-          chmod +x .fork/merge-upstream-preserving-workflows.sh \
-            .fork/restore-managed-workflows.sh .fork/apply-overlay.sh
+          chmod +x .fork/*.sh
 
           set +e
-          ./.fork/merge-upstream-preserving-workflows.sh \
+          ./.fork/merge-upstream-auto.sh \
             origin/main \
             "chore(sync): merge upstream/main @ ${UPSTREAM_SHA}" \
             upstream/main
           merge_status=$?
           set -e
+          if [[ $merge_status -ne 0 ]]; then
+            echo "::error::Automatic upstream merge stopped (exit ${merge_status}); main was not changed. See the job summary."
+            exit "$merge_status"
+          fi
 
-          if [[ $merge_status -eq 0 ]]; then
-            echo "merge_status=clean" >> "$GITHUB_OUTPUT"
-            echo "Merge completed without conflicts (${BEHIND} commit(s))."
-          else
-            # Auto-resolve the common VERSION-only conflict: always prefer upstream's
-            # VERSION when that is the sole conflict (fork mirror rewinds caused this).
-            mapfile -t CONFLICTS < <(git diff --name-only --diff-filter=U || true)
-            if [[ $merge_status -eq 2 && ${#CONFLICTS[@]} -eq 1 && "${CONFLICTS[0]}" == "backend/cmd/server/VERSION" ]]; then
-              echo "Only VERSION conflicts — taking upstream VERSION."
-              git checkout --theirs backend/cmd/server/VERSION
-              git add backend/cmd/server/VERSION
-              git commit --no-edit
-              echo "merge_status=clean" >> "$GITHUB_OUTPUT"
-              echo "auto_resolved_version=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "merge_status=conflicts" >> "$GITHUB_OUTPUT"
-              echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
-              echo "conflict_files=${CONFLICTS[*]:-unknown}" >> "$GITHUB_OUTPUT"
-              {
-                echo "## Sync blocked by non-workflow conflicts"
-                echo
-                echo "Upstream: upstream/main @ ${UPSTREAM_SHA}"
-                echo
-                if [[ ${#CONFLICTS[@]} -gt 0 ]]; then
-                  printf -- '- `%s`\n' "${CONFLICTS[@]}"
-                else
-                  echo '- `unknown`'
-                fi
-                echo
-                echo "Merge upstream/main locally, resolve the files above, push main, then re-run this workflow."
-              } >> "$GITHUB_STEP_SUMMARY"
-              git merge --abort || true
-              exit 0
-            fi
+          if [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]]; then
+            echo "Nothing new to push."
+            exit 0
           fi
 
           ./.fork/restore-managed-workflows.sh origin/main
           ./.fork/apply-overlay.sh
-          echo "overlay_status=ok" >> "$GITHUB_OUTPUT"
-
           if ! git diff --quiet || ! git diff --cached --quiet; then
             git add -A
             git commit --amend --no-edit
           else
             echo "Overlay made no additional file changes (already stamped)."
           fi
+          echo "push=true" >> "$GITHUB_OUTPUT"
 
-          git push origin main
-          echo "pushed_main=true" >> "$GITHUB_OUTPUT"
-          echo "Synced main to upstream/main @ ${UPSTREAM_SHA}"
-
-      - name: Fail job when conflicts need manual work
-        if: steps.merge.outputs.has_conflicts == 'true'
+      - name: Push main
+        if: steps.merge.outputs.push == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "::error::Upstream merge has non-workflow conflicts: ${{ steps.merge.outputs.conflict_files }}"
-          echo "See the job summary for local resolution commands."
-          exit 1
+          set -euo pipefail
+          git -c core.hooksPath=/dev/null push \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
+          echo "Synced main to upstream/main @ ${{ steps.delta.outputs.upstream_sha }}"
 
       - name: Keep only the latest 10 workflow runs
         if: always()

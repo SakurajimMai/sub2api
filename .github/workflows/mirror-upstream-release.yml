@@ -1,7 +1,9 @@
 name: Mirror Upstream Release
 
 # When Wei-Shaw/sub2api publishes a new v* tag that this fork does not have yet:
-#   1. Merge that upstream release commit into main
+#   1. Merge that upstream release commit into main (.fork/merge-upstream-auto.sh:
+#      mechanical conflicts auto-resolved, the rest by DeepSeek via Claude Code when
+#      DEEPSEEK_API_KEY is set; the build/test gate must pass)
 #   2. Re-apply fork branding (.fork/apply-overlay.sh)
 #   3. Push main
 #   4. Create the same version tag on this fork
@@ -38,12 +40,15 @@ concurrency:
 jobs:
   mirror:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     steps:
       - name: Checkout fork
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # The verify gate executes upstream code: keep the token off disk and
+          # hand it only to the final push/tag step.
+          persist-credentials: false
 
       - name: Configure git
         run: |
@@ -166,13 +171,46 @@ jobs:
           echo "Upstream tag commit: $(git rev-parse "refs/tags/upstream-mirror/${TAG}")"
           git log -1 --oneline "refs/tags/upstream-mirror/${TAG}"
 
-      - name: Merge upstream release, overlay, tag, dispatch Release
+      - name: Set up Go
+        if: >
+          steps.select.outputs.skip != 'true' &&
+          !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true)
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Setup pnpm
+        if: >
+          steps.select.outputs.skip != 'true' &&
+          !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true)
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        if: >
+          steps.select.outputs.skip != 'true' &&
+          !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true)
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Merge upstream release, verify and apply overlay
+        id: merge
         if: >
           steps.select.outputs.skip != 'true' &&
           !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.select.outputs.tag }}
+          # Only this step sees the key; merge-upstream-auto.sh hands it to the AI
+          # process alone (never to the verify gate, which executes upstream code).
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          AI_MERGE_MODEL: ${{ vars.AI_MERGE_MODEL || 'deepseek-v4-pro' }}
         run: |
           set -euo pipefail
 
@@ -182,48 +220,45 @@ jobs:
           # Fetch upstream tag into a side ref so we do not clobber a same-named local tag
           git fetch upstream "refs/tags/${TAG}:refs/tags/upstream-mirror/${TAG}"
           UP_COMMIT="$(git rev-parse "refs/tags/upstream-mirror/${TAG}")"
+          echo "up_commit=${UP_COMMIT}" >> "$GITHUB_OUTPUT"
           echo "Merging upstream ${TAG} @ ${UP_COMMIT}"
 
-          chmod +x .fork/merge-upstream-preserving-workflows.sh \
-            .fork/restore-managed-workflows.sh .fork/apply-overlay.sh
+          chmod +x .fork/*.sh
 
           set +e
-          ./.fork/merge-upstream-preserving-workflows.sh \
+          ./.fork/merge-upstream-auto.sh \
             origin/main \
             "chore(sync): merge upstream ${TAG} for mirrored release" \
             "refs/tags/upstream-mirror/${TAG}"
           merge_status=$?
           set -e
-
           if [[ $merge_status -ne 0 ]]; then
-            mapfile -t CONFLICTS < <(git diff --name-only --diff-filter=U || true)
-            {
-              echo "## Mirror blocked by non-workflow conflicts"
-              echo
-              echo "Upstream: ${TAG} @ ${UP_COMMIT}"
-              echo
-              if [[ ${#CONFLICTS[@]} -gt 0 ]]; then
-                printf -- '- `%s`\n' "${CONFLICTS[@]}"
-              else
-                echo '- `unknown`'
-              fi
-              echo
-              echo "Fetch ${TAG}, merge it into main locally, resolve the files above, then re-run this workflow."
-            } >> "$GITHUB_STEP_SUMMARY"
-            git merge --abort || true
+            echo "::error::Mirroring ${TAG} stopped (exit ${merge_status}); main was not changed. See the job summary."
             exit "$merge_status"
           fi
 
-          ./.fork/restore-managed-workflows.sh origin/main
-          ./.fork/apply-overlay.sh
-
-          if ! git diff --quiet || ! git diff --cached --quiet; then
-            git add -A
-            git commit --amend --no-edit
+          # Already merged (e.g. resolved by hand): only tag + release are left
+          if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]; then
+            ./.fork/restore-managed-workflows.sh origin/main
+            ./.fork/apply-overlay.sh
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+              git add -A
+              git commit --amend --no-edit
+            fi
           fi
 
+      - name: Push main, tag and dispatch Release
+        if: steps.merge.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.select.outputs.tag }}
+          UP_COMMIT: ${{ steps.merge.outputs.up_commit }}
+        run: |
+          set -euo pipefail
+          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
           # Push updated main (fork code at upstream release + branding)
-          git push origin main
+          git -c core.hooksPath=/dev/null push "$REMOTE" HEAD:main
 
           # Annotated tag on the merge result (not the raw upstream commit)
           if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
@@ -234,7 +269,7 @@ jobs:
           Upstream: Wei-Shaw/sub2api@${UP_COMMIT}
           Fork branding: sakurajiamai/sub2api (via .fork/overlay.conf)
           "
-          git push origin "refs/tags/${TAG}"
+          git -c core.hooksPath=/dev/null push "$REMOTE" "refs/tags/${TAG}"
 
           # GITHUB_TOKEN tag push does not trigger workflows — dispatch Release explicitly
           gh workflow run release.yml \

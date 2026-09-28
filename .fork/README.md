@@ -33,7 +33,56 @@ Workflow: [`.github/workflows/sync-upstream.yml`](../.github/workflows/sync-upst
 | Daily schedule (03:15 UTC) | If fork is behind `upstream/main`, **merge + overlay + push `main`** |
 | Manual **Run workflow** | Same; optional dry-run |
 
-Clean merges update `main` directly (no PR — avoids GITHUB_TOKEN createPullRequest limits). Fork-managed workflows are restored and branding is re-applied before the merge commit is amended and pushed. On conflicts, branch `sync/upstream-<sha>-conflicts` is pushed and the job fails for manual fix.
+Merges that pass the verify gate update `main` directly (no PR — avoids GITHUB_TOKEN createPullRequest limits). Fork-managed workflows are restored and branding is re-applied before the merge commit is amended and pushed. If a conflict cannot be resolved automatically or the gate fails, the job fails, lists the files in the job summary and leaves `main` untouched.
+
+## Auto-merge pipeline
+
+Both Sync Upstream and Mirror Upstream Release call [merge-upstream-auto.sh](./merge-upstream-auto.sh):
+
+1. `git merge` via [merge-upstream-preserving-workflows.sh](./merge-upstream-preserving-workflows.sh) (fork workflows restored)
+2. [auto-resolve-conflicts.sh](./auto-resolve-conflicts.sh) resolves mechanical conflicts:
+   - `backend/cmd/server/VERSION` → upstream version
+   - `backend/go.sum` → union of both sides
+   - generated `backend/ent/**` (not `ent/schema`) and `backend/cmd/server/wire_gen.go` → regenerated
+3. Remaining conflicts → [ai-resolve-conflicts.sh](./ai-resolve-conflicts.sh) (DeepSeek via Claude Code CLI), only when the `DEEPSEEK_API_KEY` secret is set
+4. [verify-merge.sh](./verify-merge.sh) gate: regenerate ent/wire, `go build`, `go vet` (unit + integration tags), backend unit tests, frontend lint/typecheck/critical vitest. This also catches *semantic* conflicts git cannot see (e.g. upstream changed a signature that fork-only code still calls the old way). If it fails and AI is enabled, the failure log goes to the AI for up to `AI_MERGE_ROUNDS` (default 2) fix rounds.
+5. Only a merge that passes the gate is committed; anything else resets to the pre-merge HEAD. AI-touched files are listed in the merge commit message and the job summary.
+
+Exit codes: `0` merged (or already up to date), `2` conflicts need a human, `3` gate failed, `1` other error.
+
+### AI resolution (DeepSeek)
+
+| Setting | Where | Value |
+|---------|-------|-------|
+| `DEEPSEEK_API_KEY` | Settings → Secrets and variables → Actions → **Secrets** | DeepSeek API key. Unset = no AI (rules + gate only) |
+| `AI_MERGE_MODEL` | Settings → Secrets and variables → Actions → **Variables** (optional) | Default `deepseek-v4-pro`; e.g. `deepseek-flash` is cheaper |
+
+AI-resolved merges go straight to `main` and are released like any other merge, gated only by `verify-merge.sh`. Review the "AI-assisted resolution" section of such merge commits after the fact.
+
+Upstream code is untrusted input to the AI (prompt injection), so the AI runs sandboxed:
+
+- The key is given to the `claude` process only — never exported to the verify gate, which executes upstream code — and the step that holds it has no GitHub token (checkout uses `persist-credentials: false`; only the final push step gets `GITHUB_TOKEN`).
+- `--bare --setting-sources user --strict-mcp-config`: no hooks, CLAUDE.md, project permissions or MCP servers from the repo; `--permission-mode dontAsk`: anything not allow-listed is denied.
+- Read/Edit/Write only inside the repo, never `.github/`, `.fork/`, `.git/` (re-checked after every AI run); no web access.
+- The only commands the AI can run are two read-only wrappers outside the repo (`git` read subcommands and `verify-merge.sh`), both started with `env -i`.
+
+`.fork/tests/protect-workflows-test.sh` fails CI if any of these guards is removed.
+
+Resolve a blocked merge locally:
+
+```bash
+git fetch upstream main
+./.fork/merge-upstream-auto.sh origin/main "chore(sync): merge upstream/main" upstream/main
+# exit 2 → the merge was rolled back; redo it by hand:
+git merge upstream/main              # stops with conflicts
+./.fork/restore-managed-workflows.sh origin/main
+./.fork/auto-resolve-conflicts.sh    # prints the files left for you; fix and `git add` them
+./.fork/verify-merge.sh              # PNPM="npx -y pnpm@9" if local pnpm is not v9
+./.fork/apply-overlay.sh
+git add -A && git commit --no-edit
+```
+
+To keep future merges conflict-free, put fork-only additions in separate lines/blocks (e.g. a separate gofmt section in a struct) instead of editing upstream lines.
 
 ## Automatic release mirror (tags + images)
 
@@ -60,7 +109,7 @@ Notes:
 - Only stable tags matching `vMAJOR.MINOR.PATCH` (no `-rc` / `-beta`).
 - One missing tag per run (newest first).
 - `GITHUB_TOKEN` tag pushes do not auto-trigger other workflows, so Release is started via `workflow_dispatch`.
-- Merge conflicts open a `[CONFLICTS]` PR instead of tagging.
+- Uses the same [auto-merge pipeline](#auto-merge-pipeline); unresolvable conflicts or a failed gate stop before tagging. If the release was merged by hand, re-running the workflow only tags and releases.
 - Shares a concurrency lock with Sync Upstream (`fork-main-mutation`).
 - After every Mirror / Sync / CI push, [cleanup-workflow-runs.sh](./cleanup-workflow-runs.sh) keeps only the newest **10 runs per workflow** so the Actions tab does not accumulate hundreds of scheduled no-op runs.
 
